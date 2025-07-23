@@ -1,4 +1,12 @@
 # Folders
 .venv/
+Input/
+Output/
+__pycache__/
 
 # Files
+*.pyc
+*.db
+config.yml
+test
+reference.py
