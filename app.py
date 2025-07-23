@@ -1,7 +1,16 @@
 """
 Competitive Ranked Wordle
     A program to manage multi-player games of Wordle, processing scores, and calculating ELO rankings
+
 Authors: Jivan RamjiSingh
+
+TODO:
+    - Add in traditional ELO ranking algorithm
+    - Add additional model for situations with less than three players
+    - Build weekly roundup query/calculations
+    - Lots of documentation
+    - Add ELO and OpenSkill decay (pending rate determination)
+
 Copyright (C) 2025  Jivan RamjiSingh
 
 This program is free software: you can redistribute it and/or modify
@@ -22,20 +31,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # Imports
 # ---
 
-import csv
-import json
-import jmespath
 import yaml
 import sqlite3
 import logging
 import re
-import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import date
 from fastapi import FastAPI
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
-from collections import defaultdict
 
 # ---
 # Database Operations
@@ -173,7 +176,7 @@ def calculate_openskill(puzzle: int = get_wordle_puzzle(date.today())):
     """
     Calculate Openskill rankings for a given day
     """
-    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle}"
+    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
     entries = get_entries(db, query_string)
     
     players = []
@@ -243,12 +246,6 @@ def get_ELO_rankings():
     """
     pass
 
-def get_daily_rankings():
-    """
-    Provide a ranking of all players based on their performance in a given puzzle
-    """
-    pass
-
 def get_weekly_report():
     """
     Provide a weekly report of all players showing:
@@ -282,16 +279,39 @@ async def add_score(score: Score):
     return data
 
 @app.get('/score/{email}')
-async def get_score(email, puzzle: int = 0):
-    return {"Player Email": email}
+async def get_score(email, puzzle: int = get_wordle_puzzle(date.today())):
+    query_string = f"SELECT puzzle, score, calculated_score, elo, mu, sigma FROM scores WHERE puzzle = {puzzle} AND player_email = '{email}'"
+    data = get_entries(db, query_string)
+    return data[0]
 
 @app.get('/calculate_daily/')
 async def calculate_daily():
     calculate_openskill()
 
 @app.get('/daily_ranks/')
-async def daily_ranks():
-    pass
+async def daily_ranks(puzzle: int = get_wordle_puzzle(date.today())):
+    """
+    Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
+    """
+    query_string = f"SELECT player_name, hard_mode, calculated_score FROM scores WHERE puzzle = {puzzle}"
+    data = get_entries(db, query_string)
+    for result in data:
+        result['hard_mode'] = 'Y' if result['hard_mode'] == 1 else 'N'
+    sorted_players = sorted(data, key=lambda x: x['calculated_score'], reverse=True)
+    player_chart = '| Player | Hard Mode | Ranking |\n| --- | --- | --- |'
+    i = 1
+    for player in sorted_players:
+        player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {i} |"
+        player['rank'] = i
+        i += 1
+    print(player_chart)
+
+    output = {
+        'raw_data': sorted_players,
+        'md_chart': player_chart
+    }
+    return output
+
 
 @app.get('/weekly_summary/')
 async def weekly_summary():
