@@ -73,20 +73,21 @@ def update_entry(db: sqlite3.Connection, id: int, data: dict):
     i = 1
     for k, v in data.items():
         if i == len(data):
-            if isinstance(v, int):
+            if (isinstance(v, int) or isinstance(v, float)):
                 new_fields = f"{new_fields} {k} = {v}"
             else:
                 new_fields = f"{new_fields} {k} = '{v}'"
         else:
-            if isinstance(v, int):
+            if (isinstance(v, int) or isinstance(v, float)):
                 new_fields = f"{new_fields} {k} = {v},"
             else:
                 new_fields = f"{new_fields} {k} = '{v}',"
         i += 1
 
-    query_string = f"UPDATE scores{new_fields} WHERE 'id' = {id}"
+    query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
     db_cursor.execute(query_string)
     db_cursor.close()
+    db.commit()
     logging.debug(f"Updated row in scores: {query_string}")
 
 def add_entry(db: sqlite3.Connection, data: dict):
@@ -99,14 +100,14 @@ def add_entry(db: sqlite3.Connection, data: dict):
     i = 1
     for k, v in data.items():
         if i == len(data):
-            if isinstance(v, int):
+            if (isinstance(v, int) or isinstance(v, float)):
                 cols = f"{cols} {k}"
                 vals = f"{vals} {v}"
             else:
                 cols = f"{cols} {k}"
                 vals = f"{vals} '{v}'"
         else:
-            if isinstance(v, int):
+            if (isinstance(v, int) or isinstance(v, float)):
                 cols = f"{cols} {k},"
                 vals = f"{vals} {v},"
             else:
@@ -115,21 +116,23 @@ def add_entry(db: sqlite3.Connection, data: dict):
         i += 1
 
     query_string = f"INSERT INTO scores ({cols}) VALUES ({vals})"
-    print(query_string)
     db_cursor.execute(query_string)
-    db_cursor.close()
     db.commit()
+    db_cursor.close()
     logging.debug(f"Added row in scores: {query_string}")
 
-def get_entries(db: sqlite3.Connection, puzzle):
+def get_entries(db: sqlite3.Connection, query_string):
     """
     Get rows for a given puzzle
     """
     db_cursor = db.cursor()
-    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle}"
     db_cursor.execute(query_string)
     rows = db_cursor.fetchall()
-    return rows
+    logging.debug(f"Sending query to DB: {query_string}")
+    cols = [col[0] for col in db_cursor.description]
+    data = [dict(zip(cols, row)) for row in rows]
+    db_cursor.close()
+    return data
 
 # ---
 # Data Definitions
@@ -170,7 +173,36 @@ def calculate_openskill(puzzle: int = get_wordle_puzzle(date.today())):
     """
     Calculate Openskill rankings for a given day
     """
-    print(get_entries(db, puzzle))
+    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle}"
+    entries = get_entries(db, query_string)
+    
+    players = []
+    scores = []
+
+    for entry in entries:
+        query_string = f"SELECT sigma, mu FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL AND mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
+        player_data = get_entries(db, query_string)
+        if player_data == []:
+            players.append([model.rating(name=entry['player_email'])])
+        else:
+            player_data = player_data[0]
+            players.append([model.rating(name=entry['player_email'], mu=player_data['mu'], sigma=player_data['sigma'])])
+        scores.append(entry['calculated_score'])
+
+    match_scores = model.rate(players, scores=scores)
+
+    i = 0
+    for entry in entries:
+        player = match_scores[i][0]
+
+        data = {
+            'sigma': player.sigma,
+            'mu': player.mu
+        }
+
+        update_entry(db, entry['id'], data)
+        i += 1
+
 
 def parse_score(score):
     """
