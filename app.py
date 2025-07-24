@@ -5,11 +5,14 @@ Competitive Ranked Wordle
 Authors: Jivan RamjiSingh
 
 TODO:
-    - Add in traditional ELO ranking algorithm
+    - Add API authentication
+    - Open/close db in db functions
     - Add additional model for situations with less than three players
     - Build weekly roundup query/calculations
     - Lots of documentation
     - Add ELO and OpenSkill decay (pending rate determination)
+    - Create dockerfile
+    - Add config.yml sample
 
 Copyright (C) 2025  Jivan RamjiSingh
 
@@ -35,6 +38,8 @@ import yaml
 import sqlite3
 import logging
 import re
+import math
+from collections import defaultdict
 from datetime import date
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -157,7 +162,6 @@ class Score(BaseModel):
 
 logging.basicConfig(filename='Output/out.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
-
 db = load_db(config)
 
 # ---
@@ -170,9 +174,12 @@ def get_wordle_puzzle(today):
     return delta.days
 
 def calculate_elo(player_a_elo, player_b_elo, result):
-    pass
+    # elo_change = 32 * (result -1 / (1 + 10 ** ((player_b_elo - player_a_elo) / 400)))
+    prob = 1.0 / (1 + math.pow(10, (player_b_elo - player_a_elo) / 400.0))
+    elo_change = 32 * (result - prob)
+    return elo_change
 
-def calculate_openskill(puzzle: int = get_wordle_puzzle(date.today())):
+def calculate_openskill(puzzle: int):
     """
     Calculate Openskill rankings for a given day
     """
@@ -206,6 +213,114 @@ def calculate_openskill(puzzle: int = get_wordle_puzzle(date.today())):
         update_entry(db, entry['id'], data)
         i += 1
 
+def get_player_elos(players: list):
+    query_string = "SELECT DISTINCT player_email FROM scores"
+    entries = get_entries(db, query_string)
+    ratings = {}
+    for player in entries:
+        if player['player_email'] in players:
+            query_string = f"SELECT elo, puzzle FROM scores WHERE player_email = '{player['player_email']}' AND elo NOT NULL ORDER BY puzzle DESC LIMIT 1"
+            elo = get_entries(db, query_string)
+            if elo == []:
+                ratings[player['player_email']] = 400
+            else:
+                ratings[player['player_email']] = elo[0]['elo']
+    return ratings
+
+def calculate_match_elo(puzzle: int):
+    """
+    Legacy ELO Calculation
+    Translate rankings into 1-1 matches between each player, then sum the elo change
+    """
+    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
+    entries = get_entries(db, query_string)
+    # ranked_players = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
+    
+    player_emails = []
+    grouped = {i: [] for i in range(7)}  # Initialize keys 0 through 6
+    for entry in entries:
+        score = entry.get('calculated_score')
+        grouped[score].append(entry)
+        player_emails.append(entry['player_email'])
+
+    current_ratings = get_player_elos(player_emails)
+
+    for player in entries:
+        overall_change = 0
+        for i in range(7):
+            if player['calculated_score'] > i:
+                # win condition
+                for opp in grouped[i]:
+                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 1)
+                    overall_change += change
+            elif player['calculated_score'] == i:
+                # draw condition
+                for opp in grouped[i]:
+                    if player == opp:
+                        # Player is included in this, do not calculate against themselves
+                        continue
+                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0.5)
+                    overall_change += change
+            else:
+                # loss condition
+                for opp in grouped[i]:
+                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
+                    overall_change += change
+        data = {
+            'elo': current_ratings[player['player_email']] + overall_change
+        }
+        update_entry(db, player['id'], data)
+
+        
+def blame(email: str, puzzle: int):
+    """
+    Legacy ELO Calculation
+    Translate rankings into 1-1 matches between each player, then sum the elo change
+    """
+    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
+    entries = get_entries(db, query_string)
+    entries = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
+    
+    player_emails = []
+    grouped = {i: [] for i in range(7)}  # Initialize keys 0 through 6
+    for entry in entries:
+        score = entry.get('calculated_score')
+        grouped[score].append(entry)
+        player_emails.append(entry['player_email'])
+
+    current_ratings = get_player_elos(player_emails)
+
+    output_string = ""
+    for player in entries:
+        if player['player_email'] == email:
+            output_string = f"{output_string}Analysis of {player['player_name']}'s Performance in Wordle #{puzzle}:"
+            output_string = f"{output_string}\n\n{player['player_name']} started with an ELO of {current_ratings[player['player_email']]}"
+            overall_change = 0
+            for i in range(7):
+                if player['calculated_score'] > i:
+                    # win condition
+                    for opp in grouped[i]:
+                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 1)
+                        overall_change += change
+                        output_string = f"{output_string}\n\tWon against {opp['player_name']}. ELO Change: {change}"
+                elif player['calculated_score'] == i:
+                    # draw condition
+                    for opp in grouped[i]:
+                        if player == opp:
+                            # Player is included in this, do not calculate against themselves
+                            continue
+                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0.5)
+                        overall_change += change
+                        output_string = f"{output_string}\n\tTied against {opp['player_name']}. ELO Change: {change}"
+                else:
+                    # loss condition
+                    for opp in grouped[i]:
+                        # print(f"{player['player_name']}:{player['calculated_score']} loss {opp['player_name']}:{opp['calculated_score']} change {calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)}")
+                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
+                        overall_change += change
+                        output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {change}"
+            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {overall_change}, bringing their new ELO rating to: {current_ratings[player['player_email']] + overall_change}"
+    return output_string
 
 def parse_score(score):
     """
@@ -220,7 +335,7 @@ def parse_score(score):
     puzzle = int(puzzle.replace(',', ''))
 
     if score == 'X':
-        score = 7
+        score = 0
     else:
         score = int(score)
     
@@ -240,11 +355,28 @@ def parse_score(score):
 
     return data
 
-def get_ELO_rankings():
+def get_ELO_rankings(puzzle: int):
     """
     Provide a ranking of all players in order of their ELO rank
     """
-    pass
+    query_string = f"SELECT player_name, hard_mode, calculated_score FROM scores WHERE puzzle = {puzzle}"
+    data = get_entries(db, query_string)
+    for result in data:
+        result['hard_mode'] = 'Y' if result['hard_mode'] == 1 else 'N'
+    sorted_players = sorted(data, key=lambda x: x['calculated_score'], reverse=True)
+    player_chart = '| Player | Hard Mode | Ranking |\n| --- | --- | --- |'
+    i = 1
+    for player in sorted_players:
+        player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {i} |"
+        player['rank'] = i
+        i += 1
+    print(player_chart)
+
+    output = {
+        'raw_data': sorted_players,
+        'md_chart': player_chart
+    }
+    return output
 
 def get_weekly_report():
     """
@@ -284,32 +416,23 @@ async def get_score(email, puzzle: int = get_wordle_puzzle(date.today())):
     data = get_entries(db, query_string)
     return data[0]
 
+@app.get('/blame/{email}')
+async def blame_score(email, puzzle: int = get_wordle_puzzle(date.today()) - 1):
+    msg = blame(email, puzzle)
+    return {'msg': msg}
+
 @app.get('/calculate_daily/')
-async def calculate_daily():
-    calculate_openskill()
+async def calculate_daily(puzzle: int = get_wordle_puzzle(date.today())):
+    calculate_openskill(puzzle)
+    calculate_match_elo(puzzle)
+    return {'status': 200}
 
 @app.get('/daily_ranks/')
 async def daily_ranks(puzzle: int = get_wordle_puzzle(date.today())):
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
     """
-    query_string = f"SELECT player_name, hard_mode, calculated_score FROM scores WHERE puzzle = {puzzle}"
-    data = get_entries(db, query_string)
-    for result in data:
-        result['hard_mode'] = 'Y' if result['hard_mode'] == 1 else 'N'
-    sorted_players = sorted(data, key=lambda x: x['calculated_score'], reverse=True)
-    player_chart = '| Player | Hard Mode | Ranking |\n| --- | --- | --- |'
-    i = 1
-    for player in sorted_players:
-        player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {i} |"
-        player['rank'] = i
-        i += 1
-    print(player_chart)
-
-    output = {
-        'raw_data': sorted_players,
-        'md_chart': player_chart
-    }
+    output = get_ELO_rankings(puzzle)
     return output
 
 
@@ -318,14 +441,7 @@ async def weekly_summary():
     pass
 
 def main():
-    # print(config)
     db = load_db(config)  
-
-    # add_entry(db, data)
-
-    # update_entry(db, 1, data)
-
-    # print(get_wordle_puzzle(date.today()))
 
     db.close()
 
