@@ -785,7 +785,7 @@ async def login_for_access_token(
     )
     return Token(access_token=access_token, token_type="bearer")
 
-@app.post('/add_score/')
+@app.post('/add-score/')
 async def add_score(score: Score, current_user: Annotated[User, Depends(get_current_active_user)]):
     """
     Add player score to DB
@@ -811,7 +811,7 @@ async def blame_score(email, current_user: Annotated[User, Depends(get_current_a
     msg = blame(email, puzzle)
     return {'msg': msg}
 
-@app.get('/calculate_daily/')
+@app.get('/calculate-daily/')
 async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     if check_players(puzzle, puzzle, True):
         calculate_openskill(puzzle)
@@ -820,7 +820,7 @@ async def calculate_daily(current_user: Annotated[User, Depends(get_current_acti
         pass
     return {'status': 200}
 
-@app.get('/daily_ranks/')
+@app.get('/daily-ranks/')
 async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
@@ -831,7 +831,7 @@ async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_u
         output = {'status': 404, 'msg': 'Nobody played today :('}
     return output
 
-@app.get('/daily_summary/')
+@app.get('/daily-summary/')
 async def daily_summary(current_user: Annotated[User, Depends(get_current_active_user)], report_date: date = date.today()):
     puzzle = get_wordle_puzzle(report_date - timedelta(days=1))
     if check_players(puzzle, puzzle, False):
@@ -840,7 +840,7 @@ async def daily_summary(current_user: Annotated[User, Depends(get_current_active
         data = {'status': 404, 'msg': 'Nobody played today :('}
     return data
 
-@app.get('/weekly_summary/')
+@app.get('/weekly-summary/')
 async def weekly_summary(current_user: Annotated[User, Depends(get_current_active_user)], end_date: date = date.today()):
     start_date = end_date - timedelta(days=7)
     end = get_wordle_puzzle(end_date)
