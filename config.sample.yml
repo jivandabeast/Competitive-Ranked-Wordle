@@ -1,0 +1,16 @@
+database: '/path/to/db.db'
+adaptive_card: 'adaptive_card.json'
+elo:
+  rating_constant: 400
+  k_factor: 12
+security:
+  secret_key: '' # generate with `openssl rand -hex 32`
+  algorithm: 'HS256'
+  token_expiration: 30 # in minutes
+  users:
+    example_username:
+      username: 'example_username'
+      full_name: 'Example User' # Field not mandatory
+      email: 'example@example.org' # Field not mandatory
+      hashed_password: '' # Generate a bcrypt hash with the password you want to use
+      disabled: False

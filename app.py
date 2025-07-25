@@ -5,12 +5,10 @@ Competitive Ranked Wordle
 Authors: Jivan RamjiSingh
 
 TODO:
-    - Open/close db in db functions
     - Set margin parameter for PlackettLuce model to account for match skill
     - Lots of documentation
     - Add ELO and OpenSkill decay (pending rate determination)
     - Create dockerfile
-    - Add config.yml sample
 
 Copyright (C) 2025  Jivan RamjiSingh
 
@@ -55,7 +53,7 @@ from openskill.models import PlackettLuce
 # Database Operations
 # ---
 
-def load_db(config: dict):
+def check_db(config: dict):
     """
     Load sqlite3 db connection
     Inputs:
@@ -63,90 +61,92 @@ def load_db(config: dict):
     Outputs:
         db              DB connection
     """
-    db = sqlite3.connect(config['database'])
-    sq_cursor = db.cursor()
+    with sqlite3.connect(config['database']) as db:
+        sq_cursor = db.cursor()
 
-    # Check if the scores table is created, if not then make it
-    try:
-        sq_cursor.execute('SELECT * FROM scores LIMIT 5')
-        logging.debug(f"{config['database']} table 'scores' exists.")
-    except sqlite3.OperationalError:
-        sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
-        db.commit()
-        logging.debug(f"{config['database']} table 'scores' created.")
-    
-    sq_cursor.close()
-    return db
+        # Check if the scores table is created, if not then make it
+        try:
+            sq_cursor.execute('SELECT * FROM scores LIMIT 5')
+            logging.debug(f"{config['database']} table 'scores' exists.")
+        except sqlite3.OperationalError:
+            sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
+            db.commit()
+            logging.debug(f"{config['database']} table 'scores' created.")
+        
+        sq_cursor.close()
 
-def update_entry(db: sqlite3.Connection, id: int, data: dict):
+def update_entry(id: int, data: dict):
     """
     Update an entry in the db
     """
-    db_cursor = db.cursor()
-    new_fields = ""
-    i = 1
-    for k, v in data.items():
-        if i == len(data):
-            if (isinstance(v, int) or isinstance(v, float)):
-                new_fields = f"{new_fields} {k} = {v}"
+    with sqlite3.connect(config['database']) as db:
+        db_cursor = db.cursor()
+        new_fields = ""
+        i = 1
+        for k, v in data.items():
+            if i == len(data):
+                if (isinstance(v, int) or isinstance(v, float)):
+                    new_fields = f"{new_fields} {k} = {v}"
+                else:
+                    new_fields = f"{new_fields} {k} = '{v}'"
             else:
-                new_fields = f"{new_fields} {k} = '{v}'"
-        else:
-            if (isinstance(v, int) or isinstance(v, float)):
-                new_fields = f"{new_fields} {k} = {v},"
-            else:
-                new_fields = f"{new_fields} {k} = '{v}',"
-        i += 1
+                if (isinstance(v, int) or isinstance(v, float)):
+                    new_fields = f"{new_fields} {k} = {v},"
+                else:
+                    new_fields = f"{new_fields} {k} = '{v}',"
+            i += 1
 
-    query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
-    db_cursor.execute(query_string)
-    db_cursor.close()
-    db.commit()
-    logging.debug(f"Updated row in scores: {query_string}")
+        query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
+        db_cursor.execute(query_string)
+        db_cursor.close()
+        db.commit()
+        logging.debug(f"Updated row in scores: {query_string}")
 
-def add_entry(db: sqlite3.Connection, data: dict):
+def add_entry(data: dict):
     """
     Add a wordle score entry to the db
     """
-    db_cursor = db.cursor()
-    cols = ""
-    vals = ""
-    i = 1
-    for k, v in data.items():
-        if i == len(data):
-            if (isinstance(v, int) or isinstance(v, float)):
-                cols = f"{cols} {k}"
-                vals = f"{vals} {v}"
+    with sqlite3.connect(config['database']) as db:
+        db_cursor = db.cursor()
+        cols = ""
+        vals = ""
+        i = 1
+        for k, v in data.items():
+            if i == len(data):
+                if (isinstance(v, int) or isinstance(v, float)):
+                    cols = f"{cols} {k}"
+                    vals = f"{vals} {v}"
+                else:
+                    cols = f"{cols} {k}"
+                    vals = f"{vals} '{v}'"
             else:
-                cols = f"{cols} {k}"
-                vals = f"{vals} '{v}'"
-        else:
-            if (isinstance(v, int) or isinstance(v, float)):
-                cols = f"{cols} {k},"
-                vals = f"{vals} {v},"
-            else:
-                cols = f"{cols} {k},"
-                vals = f"{vals} '{v}',"
-        i += 1
+                if (isinstance(v, int) or isinstance(v, float)):
+                    cols = f"{cols} {k},"
+                    vals = f"{vals} {v},"
+                else:
+                    cols = f"{cols} {k},"
+                    vals = f"{vals} '{v}',"
+            i += 1
 
-    query_string = f"INSERT INTO scores ({cols}) VALUES ({vals})"
-    db_cursor.execute(query_string)
-    db.commit()
-    db_cursor.close()
-    logging.debug(f"Added row in scores: {query_string}")
+        query_string = f"INSERT INTO scores ({cols}) VALUES ({vals})"
+        db_cursor.execute(query_string)
+        db.commit()
+        db_cursor.close()
+        logging.debug(f"Added row in scores: {query_string}")
 
-def get_entries(db: sqlite3.Connection, query_string):
+def get_entries(query_string: str):
     """
     Get rows for a given puzzle
     """
-    db_cursor = db.cursor()
-    db_cursor.execute(query_string)
-    rows = db_cursor.fetchall()
-    logging.debug(f"Sending query to DB: {query_string}")
-    cols = [col[0] for col in db_cursor.description]
-    data = [dict(zip(cols, row)) for row in rows]
-    db_cursor.close()
-    return data
+    with sqlite3.connect(config['database']) as db:
+        db_cursor = db.cursor()
+        db_cursor.execute(query_string)
+        rows = db_cursor.fetchall()
+        logging.debug(f"Sending query to DB: {query_string}")
+        cols = [col[0] for col in db_cursor.description]
+        data = [dict(zip(cols, row)) for row in rows]
+        db_cursor.close()
+        return data
 
 # ---
 # Data Definitions
@@ -159,10 +159,10 @@ model = PlackettLuce()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-SECRET_KEY = config['security']['secret_key']
-ALGORITHM = config['security']['algorithm']
-ACCESS_TOKEN_EXPIRE_MINUTES = config['security']['token_expiration']
-USERS = config['security']['users']
+SECRET_KEY: str = config['security']['secret_key']
+ALGORITHM: str = config['security']['algorithm']
+ACCESS_TOKEN_EXPIRE_MINUTES: str = config['security']['token_expiration']
+USERS: str = config['security']['users']
 
 class Score(BaseModel):
     name: str
@@ -194,7 +194,6 @@ class UserInDB(User):
 
 logging.basicConfig(filename='Output/out.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
-db = load_db(config)
 
 # ---
 # Helper Functions
@@ -216,7 +215,7 @@ def calculate_openskill(puzzle: int):
     Calculate Openskill rankings for a given day
     """
     query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
@@ -234,7 +233,7 @@ def calculate_openskill(puzzle: int):
 
     for entry in entries:
         query_string = f"SELECT mu, sigma, ordinal FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL AND mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
-        player_data = get_entries(db, query_string)
+        player_data = get_entries(query_string)
         if player_data == []:
             players.append([model.rating(name=entry['player_email'])])
             ords[entry['player_email']] = 0
@@ -257,17 +256,17 @@ def calculate_openskill(puzzle: int):
             'ordinal_delta': ords[entry['player_email']] - player.ordinal()
         }
 
-        update_entry(db, entry['id'], data)
+        update_entry(entry['id'], data)
         i += 1
 
 def get_player_elos(players: list):
     query_string = "SELECT DISTINCT player_email FROM scores"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     ratings = {}
     for player in entries:
         if player['player_email'] in players:
             query_string = f"SELECT elo, puzzle FROM scores WHERE player_email = '{player['player_email']}' AND elo NOT NULL ORDER BY puzzle DESC LIMIT 1"
-            elo = get_entries(db, query_string)
+            elo = get_entries(query_string)
             if elo == []:
                 ratings[player['player_email']] = 400
             else:
@@ -280,7 +279,7 @@ def calculate_match_elo(puzzle: int):
     Translate rankings into 1-1 matches between each player, then sum the elo change
     """
     query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
@@ -325,7 +324,7 @@ def calculate_match_elo(puzzle: int):
             'elo': current_ratings[player['player_email']] + overall_change,
             'elo_delta': overall_change
         }
-        update_entry(db, player['id'], data)
+        update_entry(player['id'], data)
         
 def blame(email: str, puzzle: int):
     """
@@ -333,7 +332,7 @@ def blame(email: str, puzzle: int):
     Translate rankings into 1-1 matches between each player, then sum the elo change
     """
     query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     entries = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
     
     player_emails = []
@@ -412,7 +411,7 @@ def parse_score(score):
 
 def get_daily_ranks(puzzle: int):
     query_string = f"SELECT player_name, hard_mode, calculated_score FROM scores WHERE puzzle = {puzzle}"
-    data = get_entries(db, query_string)
+    data = get_entries(query_string)
     for result in data:
         result['hard_mode'] = 'Y' if result['hard_mode'] == 1 else 'N'
     sorted_players = sorted(data, key=lambda x: x['calculated_score'], reverse=True)
@@ -435,14 +434,11 @@ def get_daily_report(today: date):
     Provide a ranking of all players in order of their OpenSkill rank
     """
     puzzle = get_wordle_puzzle(today - timedelta(days=1))
-    # start_date = date - timedelta(days=1)
-    # end = get_wordle_puzzle(date)
-    # start = get_wordle_puzzle(start_date)
     players = defaultdict(list)
     player_stats = {}
 
     query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score, ordinal, ordinal_delta, elo_delta FROM scores WHERE puzzle = {puzzle}"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     for entry in entries:
         players[entry['player_name']].append(entry)
     
@@ -555,7 +551,7 @@ def get_weekly_report(end_date: date):
     player_stats = {}
 
     query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score FROM scores WHERE puzzle >= {start} and puzzle <= {end}"
-    entries = get_entries(db, query_string)
+    entries = get_entries(query_string)
     for entry in entries:
         players[entry['player_name']].append(entry)
     
@@ -771,13 +767,13 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
     data['player_email'] = score.email
     data['player_name'] = score.name
     data ['raw_score'] = score.score
-    add_entry(db, data)
+    add_entry(data)
     return data
 
 @app.get('/score/{email}')
 async def get_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     query_string = f"SELECT puzzle, score, calculated_score, elo, mu, sigma FROM scores WHERE puzzle = {puzzle} AND player_email = '{email}'"
-    data = get_entries(db, query_string)
+    data = get_entries(query_string)
     return data[0]
 
 @app.get('/blame/{email}')
@@ -808,14 +804,3 @@ async def daily_summary(current_user: Annotated[User, Depends(get_current_active
 async def weekly_summary(current_user: Annotated[User, Depends(get_current_active_user)], end_date: date = date.today()):
     data = get_weekly_report(end_date)
     return jsonable_encoder(data)
-
-def main():
-    db = load_db(config)  
-
-    db.close()
-
-# ---
-# Entrypoint
-# ---
-if __name__ == '__main__':
-    main()
