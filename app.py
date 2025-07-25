@@ -209,6 +209,21 @@ else:
 # Helper Functions
 # ---
 
+def check_players(start: int, end: int, hard_mode: bool = True):
+    """
+    Checks if anyone played a given puzzle
+    """
+    if hard_mode:
+        query_string = f"SELECT * FROM scores WHERE puzzle >= {start} and puzzle <= {end} AND hard_mode = 1"
+    else:
+        query_string = f"SELECT * FROM scores WHERE puzzle >= {start} and puzzle <= {end}"
+
+    entries = get_entries(query_string)
+    if entries == []:
+        return False
+    else:
+        return True
+
 def get_wordle_puzzle(today):
     first_wordle = date(2021, 6, 19)
     delta = today - first_wordle
@@ -384,6 +399,8 @@ def blame(email: str, puzzle: int):
                         overall_change += change
                         output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {change}"
             output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {overall_change}, bringing their new ELO rating to: {current_ratings[player['player_email']] + overall_change}"
+    if output_string == "":
+        output_string = f"{email} did not play Wordle today!"
     return output_string
 
 def parse_score(score):
@@ -784,7 +801,10 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
 async def get_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     query_string = f"SELECT puzzle, score, calculated_score, elo, mu, sigma FROM scores WHERE puzzle = {puzzle} AND player_email = '{email}'"
     data = get_entries(query_string)
-    return data[0]
+    if data == []:
+        return {'status': 404, 'msg': f'{email} did not played today :('}
+    else:
+        return data[0]
 
 @app.get('/blame/{email}')
 async def blame_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today()) - 1):
@@ -793,8 +813,11 @@ async def blame_score(email, current_user: Annotated[User, Depends(get_current_a
 
 @app.get('/calculate_daily/')
 async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
-    calculate_openskill(puzzle)
-    calculate_match_elo(puzzle)
+    if check_players(puzzle, puzzle, True):
+        calculate_openskill(puzzle)
+        calculate_match_elo(puzzle)
+    else:
+        pass
     return {'status': 200}
 
 @app.get('/daily_ranks/')
@@ -802,15 +825,29 @@ async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_u
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
     """
-    output = get_daily_ranks(puzzle)
+    if check_players(puzzle, puzzle, False):
+        output = get_daily_ranks(puzzle)
+    else:
+        output = {'status': 404, 'msg': 'Nobody played today :('}
     return output
 
 @app.get('/daily_summary/')
 async def daily_summary(current_user: Annotated[User, Depends(get_current_active_user)], report_date: date = date.today()):
-    data = get_daily_report(report_date)
+    puzzle = get_wordle_puzzle(report_date - timedelta(days=1))
+    if check_players(puzzle, puzzle, False):
+        data = get_daily_report(report_date)
+    else:
+        data = {'status': 404, 'msg': 'Nobody played today :('}
     return data
 
 @app.get('/weekly_summary/')
 async def weekly_summary(current_user: Annotated[User, Depends(get_current_active_user)], end_date: date = date.today()):
-    data = get_weekly_report(end_date)
+    start_date = end_date - timedelta(days=7)
+    end = get_wordle_puzzle(end_date)
+    start = get_wordle_puzzle(start_date)
+
+    if check_players(start, end, False):
+        data = get_weekly_report(end_date)
+    else:
+        data = {'status': 404, 'msg': 'Nobody played today :('}
     return jsonable_encoder(data)
