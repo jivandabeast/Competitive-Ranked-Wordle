@@ -8,7 +8,6 @@ TODO:
     - Set margin parameter for PlackettLuce model to account for match skill
     - Lots of documentation
     - Add ELO and OpenSkill decay (pending rate determination)
-    - Create dockerfile
 
 Copyright (C) 2025  Jivan RamjiSingh
 
@@ -30,6 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # Imports
 # ---
 
+import os
 import json
 import yaml
 import sqlite3
@@ -152,7 +152,8 @@ def get_entries(query_string: str):
 # Data Definitions
 # --
 
-with open('config.yml', 'r') as f:
+config_file = os.getenv('CONFIG_FILE', 'config.yml')
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 
 model = PlackettLuce()
@@ -192,7 +193,7 @@ class UserInDB(User):
 # Library Configurations
 # ---
 
-logging.basicConfig(filename='Output/out.log', level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename=config['log_file'], level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
 
 # ---
