@@ -62,19 +62,23 @@ def check_db(config: dict):
     Outputs:
         db              DB connection
     """
-    with sqlite3.connect(config['database']) as db:
-        sq_cursor = db.cursor()
+    try:
+        with sqlite3.connect(config['database']) as db:
+            sq_cursor = db.cursor()
 
-        # Check if the scores table is created, if not then make it
-        try:
-            sq_cursor.execute('SELECT * FROM scores LIMIT 5')
-            logging.debug(f"{config['database']} table 'scores' exists.")
-        except sqlite3.OperationalError:
-            sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
-            db.commit()
-            logging.debug(f"{config['database']} table 'scores' created.")
-        
-        sq_cursor.close()
+            # Check if the scores table is created, if not then make it
+            try:
+                sq_cursor.execute('SELECT * FROM scores LIMIT 5')
+                logging.debug(f"{config['database']} table 'scores' exists.")
+            except sqlite3.OperationalError:
+                sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
+                db.commit()
+                logging.debug(f"{config['database']} table 'scores' created.")
+            
+            sq_cursor.close()
+            return True
+    except:
+        return False
 
 def update_entry(id: int, data: dict):
     """
@@ -196,6 +200,10 @@ class UserInDB(User):
 
 logging.basicConfig(filename=config['log_file'], level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
+if check_db(config):
+    pass
+else:
+    raise(TypeError("DB Failed to Init Properly"))
 
 # ---
 # Helper Functions
