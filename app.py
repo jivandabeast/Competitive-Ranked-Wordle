@@ -7,8 +7,7 @@ Authors: Jivan RamjiSingh
 TODO:
     - Add API authentication
     - Open/close db in db functions
-    - Add additional model for situations with less than three players
-    - Build weekly roundup query/calculations
+    - Set margin parameter for PlackettLuce model to account for match skill
     - Lots of documentation
     - Add ELO and OpenSkill decay (pending rate determination)
     - Create dockerfile
@@ -34,14 +33,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # Imports
 # ---
 
+import json
 import yaml
 import sqlite3
 import logging
 import re
 import math
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
 
@@ -65,7 +66,7 @@ def load_db(config: dict):
         sq_cursor.execute('SELECT * FROM scores LIMIT 5')
         logging.debug(f"{config['database']} table 'scores' exists.")
     except sqlite3.OperationalError:
-        sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real)")
+        sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
         db.commit()
         logging.debug(f"{config['database']} table 'scores' created.")
     
@@ -185,18 +186,31 @@ def calculate_openskill(puzzle: int):
     """
     query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
     entries = get_entries(db, query_string)
+    if len(entries) == 1:
+        # Don't do calculations when only one player submits
+        for entry in entries:
+            data = {
+                'sigma': entry['sigma'],
+                'mu': entry['mu'],
+                'ordinal': entry['ordinal'],
+                'ordinal_delta': entry['ordinal_delta'],
+            }
+        return False
     
     players = []
     scores = []
+    ords = {}
 
     for entry in entries:
-        query_string = f"SELECT sigma, mu FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL AND mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
+        query_string = f"SELECT mu, sigma, ordinal FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL AND mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
         player_data = get_entries(db, query_string)
         if player_data == []:
             players.append([model.rating(name=entry['player_email'])])
+            ords[entry['player_email']] = 0
         else:
             player_data = player_data[0]
             players.append([model.rating(name=entry['player_email'], mu=player_data['mu'], sigma=player_data['sigma'])])
+            ords[entry['player_email']] = player_data['ordinal']
         scores.append(entry['calculated_score'])
 
     match_scores = model.rate(players, scores=scores)
@@ -207,7 +221,9 @@ def calculate_openskill(puzzle: int):
 
         data = {
             'sigma': player.sigma,
-            'mu': player.mu
+            'mu': player.mu,
+            'ordinal': player.ordinal(),
+            'ordinal_delta': ords[entry['player_email']] - player.ordinal()
         }
 
         update_entry(db, entry['id'], data)
@@ -234,6 +250,14 @@ def calculate_match_elo(puzzle: int):
     """
     query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
     entries = get_entries(db, query_string)
+    if len(entries) == 1:
+        # Don't do calculations when only one player submits
+        for entry in entries:
+            data = {
+                'elo': entry['elo'],
+                'elo_delta': entry['elo_delta'],
+            }
+        return False
     # ranked_players = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
     
     player_emails = []
@@ -267,10 +291,10 @@ def calculate_match_elo(puzzle: int):
                     change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
                     overall_change += change
         data = {
-            'elo': current_ratings[player['player_email']] + overall_change
+            'elo': current_ratings[player['player_email']] + overall_change,
+            'elo_delta': overall_change
         }
         update_entry(db, player['id'], data)
-
         
 def blame(email: str, puzzle: int):
     """
@@ -355,10 +379,7 @@ def parse_score(score):
 
     return data
 
-def get_ELO_rankings(puzzle: int):
-    """
-    Provide a ranking of all players in order of their ELO rank
-    """
+def get_daily_ranks(puzzle: int):
     query_string = f"SELECT player_name, hard_mode, calculated_score FROM scores WHERE puzzle = {puzzle}"
     data = get_entries(db, query_string)
     for result in data:
@@ -378,14 +399,250 @@ def get_ELO_rankings(puzzle: int):
     }
     return output
 
-def get_weekly_report():
+def get_daily_report(today: date):
+    """
+    Provide a ranking of all players in order of their OpenSkill rank
+    """
+    puzzle = get_wordle_puzzle(today - timedelta(days=1))
+    # start_date = date - timedelta(days=1)
+    # end = get_wordle_puzzle(date)
+    # start = get_wordle_puzzle(start_date)
+    players = defaultdict(list)
+    player_stats = {}
+
+    query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score, ordinal, ordinal_delta, elo_delta FROM scores WHERE puzzle = {puzzle}"
+    entries = get_entries(db, query_string)
+    for entry in entries:
+        players[entry['player_name']].append(entry)
+    
+    players = dict(players)
+    for player, scores in players.items():
+        player_stats[player] = {}
+
+        for score in scores:
+            player_stats[player]['end_elo'] = round(score['elo'], 3)
+            player_stats[player]['elo_change'] = round(score['elo_delta'], 3)
+
+            player_stats[player]['end_ord'] = round(score['ordinal'], 5)
+            player_stats[player]['ord_change'] = round(score['ordinal_delta'], 5)
+    
+    # sort player_stats by end ordinal
+    sorted_keys = sorted(player_stats, key=lambda k: player_stats[k]['end_ord'], reverse=True)
+    sorted_player_stats = {}
+    for key in sorted_keys:
+        sorted_player_stats[key] = player_stats[key]
+
+    with open(config['adaptive_card'], 'r') as f:
+        adaptive_card = json.load(f)
+
+    adaptive_card['body'][0]['inlines'][0]['text'] = f"{today.isoformat()}: Wordle Report"
+    cols = 3
+    headers = ['Wordler', 'ELO', 'OpenSkill']
+
+    for i in range(cols):
+        col = {
+            "width": 1
+        }
+        adaptive_card['body'][1]['columns'].append(col)
+    
+    header_row = {
+        "type": "TableRow",
+        "cells": []
+    }
+    for header in headers:
+        cell = {
+            "type": "TableCell",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": header,
+                        "wrap": True
+                    }
+                ]
+        }
+        header_row['cells'].append(cell)
+
+    adaptive_card['body'][1]['rows'].append(header_row)
+
+    rows = []
+    for player, stats in sorted_player_stats.items():
+        row = {
+            "type": "TableRow",
+            "cells": [
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": player,
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{stats['end_elo']}\n\nΔ {stats['elo_change']}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{stats['end_ord']}\n\nΔ {stats['ord_change']}",
+                                "wrap": True
+                            }
+                        ]
+                }
+            ]
+        }
+        rows.append(row)
+    adaptive_card['body'][1]['rows'].extend(rows)
+    output = {
+        'adaptive_card': adaptive_card,
+        'player_stats': player_stats,
+        'sorted_player_stats': sorted_player_stats
+    }
+    return output
+
+def get_weekly_report(end_date: date):
     """
     Provide a weekly report of all players showing:
         - Beginning ELO
         - End ELO
         - Average score
     """
-    pass
+    start_date = end_date - timedelta(days=7)
+    end = get_wordle_puzzle(end_date)
+    start = get_wordle_puzzle(start_date)
+    players = defaultdict(list)
+    player_stats = {}
+
+    query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score FROM scores WHERE puzzle >= {start} and puzzle <= {end}"
+    entries = get_entries(db, query_string)
+    for entry in entries:
+        players[entry['player_name']].append(entry)
+    
+    players = dict(players)
+    for player, scores in players.items():
+        # all_scores = list(map(lambda s: s['score'], scores))
+        player_stats[player] = {}
+
+        all_scores = []
+        earliest = end + 1
+        latest = 0
+        for score in scores:
+            all_scores.append(score['score'])
+            if score['puzzle'] > latest:
+                player_stats[player]['end_elo'] = round(score['elo'], 3)
+                player_stats[player]['end_ord'] = round(model.rating(mu=score['mu'], sigma=score['sigma']).ordinal(), 5)
+                latest = score['puzzle']
+            if score['puzzle'] < earliest:
+                player_stats[player]['start_elo'] = round(score['elo'], 3)
+                player_stats[player]['start_ord'] = round(model.rating(mu=score['mu'], sigma=score['sigma']).ordinal(), 5)
+                earliest = score['puzzle']
+        player_stats[player]['average_score'] = round(sum(all_scores) / len(all_scores), 1)
+        player_stats[player]['elo_change'] = round(player_stats[player]['end_elo'] - player_stats[player]['start_elo'], 3)
+        player_stats[player]['ord_change'] = round(player_stats[player]['end_ord'] - player_stats[player]['start_ord'], 3)
+    
+    # sort player_stats by end ordinal
+    sorted_keys = sorted(player_stats, key=lambda k: player_stats[k]['end_ord'], reverse=True)
+    sorted_player_stats = {}
+    for key in sorted_keys:
+        sorted_player_stats[key] = player_stats[key]
+
+    with open(config['adaptive_card'], 'r') as f:
+        adaptive_card = json.load(f)
+
+    adaptive_card['body'][0]['inlines'][0]['text'] = 'Wordle Overall Standings'
+    cols = 4
+    headers = ['Wordler', 'ELO', 'OpenSkill', 'Average Attempts']
+
+    for i in range(cols):
+        col = {
+            "width": 1
+        }
+        adaptive_card['body'][1]['columns'].append(col)
+    
+    header_row = {
+        "type": "TableRow",
+        "cells": []
+    }
+    for header in headers:
+        cell = {
+            "type": "TableCell",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": header,
+                        "wrap": True
+                    }
+                ]
+        }
+        header_row['cells'].append(cell)
+
+    adaptive_card['body'][1]['rows'].append(header_row)
+
+    rows = []
+    for player, stats in sorted_player_stats.items():
+        row = {
+            "type": "TableRow",
+            "cells": [
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": player,
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{round(stats['end_elo'], 2)}\n\nΔ {stats['elo_change']}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{round(stats['end_ord'], 2)}\n\nΔ {stats['ord_change']}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": str(stats['average_score']),
+                                "wrap": True
+                            }
+                        ]
+                }
+            ]
+        }
+        rows.append(row)
+    adaptive_card['body'][1]['rows'].extend(rows)
+    output = {
+        'adaptive_card': adaptive_card,
+        'player_stats': player_stats,
+        'sorted_player_stats': sorted_player_stats
+    }
+    return output
 
 def elo_decay():
     """
@@ -432,13 +689,18 @@ async def daily_ranks(puzzle: int = get_wordle_puzzle(date.today())):
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
     """
-    output = get_ELO_rankings(puzzle)
+    output = get_daily_ranks(puzzle)
     return output
 
+@app.get('/daily_summary/')
+async def daily_summary(report_date: date = date.today()):
+    data = get_daily_report(report_date)
+    return data
 
 @app.get('/weekly_summary/')
-async def weekly_summary():
-    pass
+async def weekly_summary(end_date: date = date.today()):
+    data = get_weekly_report(end_date)
+    return jsonable_encoder(data)
 
 def main():
     db = load_db(config)  
