@@ -5,6 +5,7 @@ Competitive Ranked Wordle
 Authors: Jivan RamjiSingh
 
 TODO:
+    - Add msteams adaptive card for the EOD roundup
     - Set margin parameter for PlackettLuce model to account for match skill
     - Lots of documentation
     - Add ELO and OpenSkill decay (pending rate determination)
@@ -390,7 +391,7 @@ def parse_score(score):
     puzzle = int(puzzle.replace(',', ''))
 
     if score == 'X':
-        score = 0
+        score = 7
     else:
         score = int(score)
     
