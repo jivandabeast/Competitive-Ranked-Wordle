@@ -5,7 +5,6 @@ Competitive Ranked Wordle
 Authors: Jivan RamjiSingh
 
 TODO:
-    - Add API authentication
     - Open/close db in db functions
     - Set margin parameter for PlackettLuce model to account for match skill
     - Lots of documentation
@@ -39,10 +38,16 @@ import sqlite3
 import logging
 import re
 import math
+import jwt
+from typing import Annotated
 from collections import defaultdict
-from datetime import date, timedelta
-from fastapi import FastAPI
+from datetime import date, timedelta, timezone, datetime
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jwt.exceptions import InvalidTokenError
+from passlib.context import CryptContext
+from pydantic import BaseModel
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
 
@@ -151,11 +156,37 @@ with open('config.yml', 'r') as f:
     config = yaml.safe_load(f)
 
 model = PlackettLuce()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+SECRET_KEY = config['security']['secret_key']
+ALGORITHM = config['security']['algorithm']
+ACCESS_TOKEN_EXPIRE_MINUTES = config['security']['token_expiration']
+USERS = config['security']['users']
 
 class Score(BaseModel):
     name: str
     score: str
     email: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: str | None = None
+
+
+class User(BaseModel):
+    username: str
+    email: str | None = None
+    full_name: str | None = None
+    disabled: bool | None = None
+
+
+class UserInDB(User):
+    hashed_password: str
 
 # ---
 # Library Configurations
@@ -652,11 +683,87 @@ def elo_decay():
     pass
 
 # ---
+# FastAPI Security Functions
+# ---
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+
+
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except InvalidTokenError:
+        raise credentials_exception
+    user = get_user(USERS, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+async def get_current_active_user(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+# ---
 # API Configuration
 # ---
 
+@app.post("/token")
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+) -> Token:
+    user = authenticate_user(USERS, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return Token(access_token=access_token, token_type="bearer")
+
 @app.post('/add_score/')
-async def add_score(score: Score):
+async def add_score(score: Score, current_user: Annotated[User, Depends(get_current_active_user)]):
     """
     Add player score to DB
     """
@@ -668,24 +775,24 @@ async def add_score(score: Score):
     return data
 
 @app.get('/score/{email}')
-async def get_score(email, puzzle: int = get_wordle_puzzle(date.today())):
+async def get_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     query_string = f"SELECT puzzle, score, calculated_score, elo, mu, sigma FROM scores WHERE puzzle = {puzzle} AND player_email = '{email}'"
     data = get_entries(db, query_string)
     return data[0]
 
 @app.get('/blame/{email}')
-async def blame_score(email, puzzle: int = get_wordle_puzzle(date.today()) - 1):
+async def blame_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today()) - 1):
     msg = blame(email, puzzle)
     return {'msg': msg}
 
 @app.get('/calculate_daily/')
-async def calculate_daily(puzzle: int = get_wordle_puzzle(date.today())):
+async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     calculate_openskill(puzzle)
     calculate_match_elo(puzzle)
     return {'status': 200}
 
 @app.get('/daily_ranks/')
-async def daily_ranks(puzzle: int = get_wordle_puzzle(date.today())):
+async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
     """
@@ -693,12 +800,12 @@ async def daily_ranks(puzzle: int = get_wordle_puzzle(date.today())):
     return output
 
 @app.get('/daily_summary/')
-async def daily_summary(report_date: date = date.today()):
+async def daily_summary(current_user: Annotated[User, Depends(get_current_active_user)], report_date: date = date.today()):
     data = get_daily_report(report_date)
     return data
 
 @app.get('/weekly_summary/')
-async def weekly_summary(end_date: date = date.today()):
+async def weekly_summary(current_user: Annotated[User, Depends(get_current_active_user)], end_date: date = date.today()):
     data = get_weekly_report(end_date)
     return jsonable_encoder(data)
 
