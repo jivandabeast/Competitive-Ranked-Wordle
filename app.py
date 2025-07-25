@@ -194,7 +194,7 @@ class UserInDB(User):
 # Library Configurations
 # ---
 
-logging.basicConfig(filename=config['log_file'], level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename=config['log_file'], level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
 
 # ---
