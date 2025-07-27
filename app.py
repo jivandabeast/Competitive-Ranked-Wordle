@@ -444,10 +444,15 @@ def get_daily_ranks(puzzle: int):
     sorted_players = sorted(data, key=lambda x: x['calculated_score'], reverse=True)
     player_chart = '| Player | Hard Mode | Ranking |\n| --- | --- | --- |'
     i = 1
+    last_score = 0
     for player in sorted_players:
-        player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {i} |"
+        if player['calculated_score'] == last_score:
+            pass
+        else:
+            last_rank = i
+            i += 1
         player['rank'] = i
-        i += 1
+        player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {player['rank']} |"
 
     with open(config['adaptive_card'], 'r') as f:
         adaptive_card = json.load(f)
