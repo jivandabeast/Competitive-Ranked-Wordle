@@ -244,12 +244,24 @@ def calculate_openskill(puzzle: int):
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
-            data = {
-                'sigma': entry['sigma'],
-                'mu': entry['mu'],
-                'ordinal': entry['ordinal'],
-                'ordinal_delta': entry['ordinal_delta'],
-            }
+            query_string = f"SELECT * FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT SULL and mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
+            player_data = get_entries(query_string)
+            if player_data == []:
+                player = model.rating(name=entry['player_email'])
+                data = {
+                    'sigma': player.sigma,
+                    'mu': player.mu,
+                    'ordinal': player.ordinal(),
+                    'ordinal_delta': player.ordinal()
+                }
+            else:
+                player = player_data[0]
+                data = {
+                    'sigma': player['sigma'],
+                    'mu': player['mu'],
+                    'ordinal': player['ordinal'],
+                    'ordinal_delta': 0,
+                }
             update_entry(entry['id'], data)
         return False
     
@@ -309,9 +321,10 @@ def calculate_match_elo(puzzle: int):
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
+            elos = get_player_elos([entry['player_email']])
             data = {
-                'elo': entry['elo'],
-                'elo_delta': entry['elo_delta'],
+                'elo': elos[entry['player_email']],
+                'elo_delta': 0,
             }
             update_entry(entry['id'], data)
         return False
