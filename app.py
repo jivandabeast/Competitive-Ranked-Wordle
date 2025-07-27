@@ -250,6 +250,7 @@ def calculate_openskill(puzzle: int):
                 'ordinal': entry['ordinal'],
                 'ordinal_delta': entry['ordinal_delta'],
             }
+            update_entry(entry['id'], data)
         return False
     
     players = []
@@ -312,6 +313,7 @@ def calculate_match_elo(puzzle: int):
                 'elo': entry['elo'],
                 'elo_delta': entry['elo_delta'],
             }
+            update_entry(entry['id'], data)
         return False
     # ranked_players = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
     
