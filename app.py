@@ -458,8 +458,8 @@ def get_daily_ranks(puzzle: int):
         adaptive_card = json.load(f)
 
     adaptive_card['body'][0]['inlines'][0]['text'] = f"Today's Wordle Rankings"
-    cols = 3
-    headers = ['Ranking', 'Wordler', 'Hard Mode']
+    cols = 4
+    headers = ['Ranking', 'Wordler', 'Calculated Score', 'Hard Mode']
 
     for i in range(cols):
         col = {
@@ -508,6 +508,16 @@ def get_daily_ranks(puzzle: int):
                             {
                                 "type": "TextBlock",
                                 "text": f"{player['player_name']}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{player['calculated_score']}",
                                 "wrap": True
                             }
                         ]
