@@ -448,11 +448,85 @@ def get_daily_ranks(puzzle: int):
         player_chart = f"{player_chart}\n| {player['player_name']} | {player['hard_mode']} | {i} |"
         player['rank'] = i
         i += 1
-    print(player_chart)
+
+    with open(config['adaptive_card'], 'r') as f:
+        adaptive_card = json.load(f)
+
+    adaptive_card['body'][0]['inlines'][0]['text'] = f"Today's Wordle Rankings"
+    cols = 3
+    headers = ['Ranking', 'Wordler', 'Hard Mode']
+
+    for i in range(cols):
+        col = {
+            "width": 1
+        }
+        adaptive_card['body'][1]['columns'].append(col)
+    
+    header_row = {
+        "type": "TableRow",
+        "cells": []
+    }
+    for header in headers:
+        cell = {
+            "type": "TableCell",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": header,
+                        "wrap": True
+                    }
+                ]
+        }
+        header_row['cells'].append(cell)
+
+    adaptive_card['body'][1]['rows'].append(header_row)
+
+    rows = []
+    i = 1
+    for player in sorted_players:
+        row = {
+            "type": "TableRow",
+            "cells": [
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{i}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{player['player_name']}",
+                                "wrap": True
+                            }
+                        ]
+                },
+                {
+                    "type": "TableCell",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": f"{player['hard_mode']}",
+                                "wrap": True
+                            }
+                        ]
+                }
+            ]
+        }
+        i += 1
+        rows.append(row)
+    adaptive_card['body'][1]['rows'].extend(rows)
 
     output = {
         'raw_data': sorted_players,
-        'md_chart': player_chart
+        'md_chart': player_chart,
+        'adaptive_card': adaptive_card
     }
     return output
 
@@ -821,10 +895,11 @@ async def calculate_daily(current_user: Annotated[User, Depends(get_current_acti
     return {'status': 200}
 
 @app.get('/daily-ranks/')
-async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
+async def daily_ranks(current_user: Annotated[User, Depends(get_current_active_user)], report_date: date = date.today()):
     """
     Provide a ranking of all players based on their performance (rank only, hard mode independent) in a given puzzle
     """
+    puzzle = get_wordle_puzzle(report_date)
     if check_players(puzzle, puzzle, False):
         output = get_daily_ranks(puzzle)
     else:
