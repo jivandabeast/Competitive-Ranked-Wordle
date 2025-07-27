@@ -413,7 +413,7 @@ def blame(email: str, puzzle: int):
                         change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
                         overall_change += change
                         output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {round(change, 3)}"
-            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {overall_change}, bringing their new ELO rating to: {round(current_ratings[player['player_email']] + overall_change, 3)}"
+            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {round(overall_change, 3)}, bringing their new ELO rating to: {round(current_ratings[player['player_email']] + overall_change, 3)}"
     if output_string == "":
         output_string = f"{email} did not play Wordle #{puzzle}!"
     return output_string
