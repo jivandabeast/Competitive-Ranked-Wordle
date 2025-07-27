@@ -388,7 +388,7 @@ def blame(email: str, puzzle: int):
     for player in entries:
         if player['player_email'] == email:
             output_string = f"{output_string}Analysis of {player['player_name']}'s Performance in Wordle #{puzzle}:"
-            output_string = f"{output_string}\n\n{player['player_name']} started with an ELO of {current_ratings[player['player_email']]}"
+            output_string = f"{output_string}\n\n{player['player_name']} started with an ELO of {round(current_ratings[player['player_email']], 3)}\n"
             overall_change = 0
             for i in range(7):
                 if player['calculated_score'] > i:
@@ -396,7 +396,7 @@ def blame(email: str, puzzle: int):
                     for opp in grouped[i]:
                         change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 1)
                         overall_change += change
-                        output_string = f"{output_string}\n\tWon against {opp['player_name']}. ELO Change: {change}"
+                        output_string = f"{output_string}\n\tWon against {opp['player_name']}. ELO Change: {round(change, 3)}"
                 elif player['calculated_score'] == i:
                     # draw condition
                     for opp in grouped[i]:
@@ -405,17 +405,17 @@ def blame(email: str, puzzle: int):
                             continue
                         change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0.5)
                         overall_change += change
-                        output_string = f"{output_string}\n\tTied against {opp['player_name']}. ELO Change: {change}"
+                        output_string = f"{output_string}\n\tTied against {opp['player_name']}. ELO Change: {round(change, 3)}"
                 else:
                     # loss condition
                     for opp in grouped[i]:
                         # print(f"{player['player_name']}:{player['calculated_score']} loss {opp['player_name']}:{opp['calculated_score']} change {calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)}")
                         change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
                         overall_change += change
-                        output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {change}"
-            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {overall_change}, bringing their new ELO rating to: {current_ratings[player['player_email']] + overall_change}"
+                        output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {round(change, 3)}"
+            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {overall_change}, bringing their new ELO rating to: {round(current_ratings[player['player_email']] + overall_change, 3)}"
     if output_string == "":
-        output_string = f"{email} did not play Wordle today!"
+        output_string = f"{email} did not play Wordle #{puzzle}!"
     return output_string
 
 def parse_score(score):
