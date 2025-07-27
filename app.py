@@ -244,7 +244,7 @@ def calculate_openskill(puzzle: int):
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
-            query_string = f"SELECT * FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT SULL and mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
+            query_string = f"SELECT * FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL and mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
             player_data = get_entries(query_string)
             if player_data == []:
                 player = model.rating(name=entry['player_email'])
