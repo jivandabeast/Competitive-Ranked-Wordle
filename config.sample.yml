@@ -1,17 +1,17 @@
-database: '/path/to/db.db'
-log_file: '/path/to/log.log'
-adaptive_card: 'adaptive_card.json'
+database: "/data/wordle.db"
+log_file: "/data/Output/log.log"
+adaptive_card: "adaptive_card.json"
 elo:
-  rating_constant: 400
+  rating_constant: 400 # These values don't actually change anything in the Script (yet!)
   k_factor: 12
 security:
-  secret_key: '' # generate with `openssl rand -hex 32`
-  algorithm: 'HS256'
+  secret_key: "" # generate with `openssl rand -hex 32`
+  algorithm: "HS256"
   token_expiration: 30 # in minutes
-  users:
-    example_username:
-      username: 'example_username'
-      full_name: 'Example User' # Field not mandatory
-      email: 'example@example.org' # Field not mandatory
-      hashed_password: '' # Generate a bcrypt hash with the password you want to use
+  users: # Copy lines 12 - 17 to create as many users as you need
+    example_username: # Change to be your username
+      username: "example_username" # Change to be your username
+      full_name: "Example User" # Field not mandatory
+      email: "example@example.org" # Field not mandatory
+      hashed_password: "" # Generate a bcrypt hash with the password you want to use
       disabled: False
