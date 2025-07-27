@@ -901,7 +901,8 @@ async def blame_score(email, current_user: Annotated[User, Depends(get_current_a
     return {'msg': msg}
 
 @app.get('/calculate-daily/')
-async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
+async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle_date: date = date.today()):
+    puzzle = get_wordle_puzzle(puzzle_date)
     if check_players(puzzle, puzzle, True):
         calculate_openskill(puzzle)
         calculate_match_elo(puzzle)
