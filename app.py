@@ -270,56 +270,64 @@ def calculate_match_elo(puzzle: int):
         update_score_entry(config, player['id'], score_data)
         update_player_entry(config, player['player_id'], players_data)
         
-def blame(email: str, puzzle: int):
+def blame(uuid: str, puzzle: int):
     """
     Legacy ELO Calculation
     Translate rankings into 1-1 matches between each player, then sum the elo change
     """
-    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(query_string)
+    query_params = f"WHERE puzzle = {puzzle} AND hard_mode = 1"
+    entries = get_entries(config, query_params)
     entries = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
     
-    player_emails = []
+    player_ids = []
     grouped = {i: [] for i in range(7)}  # Initialize keys 0 through 6
     for entry in entries:
         score = entry.get('calculated_score')
         grouped[score].append(entry)
-        player_emails.append(entry['player_email'])
+        player_ids.append(entry['player_id'])
 
-    current_ratings = get_player_elos(player_emails)
+    current_ratings = {}
+    player_info = {}
+    target_id = 0
+    for id in player_ids:
+        player_data = lookup_player(config, player_id=id)
+        if player_data['player_uuid'] == uuid:
+            target_id = player_data['player_id']
+        player_info[id] = player_data
+        current_ratings[id] = player_data['player_elo']
 
     output_string = ""
     for player in entries:
-        if player['player_email'] == email:
-            output_string = f"{output_string}Analysis of {player['player_name']}'s Performance in Wordle #{puzzle}:"
-            output_string = f"{output_string}\n\n{player['player_name']} started with an ELO of {round(current_ratings[player['player_email']], 3)}\n"
+        if player['player_id'] == target_id:
+            output_string = f"{output_string}Analysis of {player_info[player['player_id']]['player_name']}'s Performance in Wordle #{puzzle}:"
+            output_string = f"{output_string}\n\n{player_info[player['player_id']]['player_name']} started with an ELO of {round(current_ratings[player['player_id']], 3)}\n"
             overall_change = 0
             for i in range(7):
                 if player['calculated_score'] > i:
                     # win condition
                     for opp in grouped[i]:
-                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 1)
+                        change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 1)
                         overall_change += change
-                        output_string = f"{output_string}\n\tWon against {opp['player_name']}. ELO Change: {round(change, 3)}"
+                        output_string = f"{output_string}\n\tWon against {player_info[opp['player_id']]['player_name']}. ELO Change: {round(change, 3)}"
                 elif player['calculated_score'] == i:
                     # draw condition
                     for opp in grouped[i]:
                         if player == opp:
                             # Player is included in this, do not calculate against themselves
                             continue
-                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0.5)
+                        change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 0.5)
                         overall_change += change
-                        output_string = f"{output_string}\n\tTied against {opp['player_name']}. ELO Change: {round(change, 3)}"
+                        output_string = f"{output_string}\n\tTied against {player_info[opp['player_id']]['player_name']}. ELO Change: {round(change, 3)}"
                 else:
                     # loss condition
                     for opp in grouped[i]:
-                        # print(f"{player['player_name']}:{player['calculated_score']} loss {opp['player_name']}:{opp['calculated_score']} change {calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)}")
-                        change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
+                        change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 0)
                         overall_change += change
-                        output_string = f"{output_string}\n\tLost against {opp['player_name']}. ELO Change: {round(change, 3)}"
-            output_string = f"{output_string}\n\nIn total {player['player_name']}'s ELO changed by {round(overall_change, 3)}, bringing their new ELO rating to: {round(current_ratings[player['player_email']] + overall_change, 3)}"
+                        output_string = f"{output_string}\n\tLost against {player_info[opp['player_id']]['player_name']}. ELO Change: {round(change, 3)}"
+
+            output_string = f"{output_string}\n\nIn total {player_info[player['player_id']]['player_name']}'s ELO changed by {round(overall_change, 3)}, bringing their new ELO rating to: {round(current_ratings[player['player_id']] + overall_change, 3)}"
     if output_string == "":
-        output_string = f"{email} did not play Wordle #{puzzle}!"
+        output_string = f"{uuid} did not play Wordle #{puzzle}!"
     return output_string
 
 def get_daily_ranks(puzzle: int):
@@ -734,9 +742,9 @@ async def get_score(uuid, current_user: Annotated[User, Depends(get_current_acti
         score_data['player_information'] = player_data
         return score_data
 
-@app.get('/blame/{email}')
-async def blame_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today()) - 1):
-    msg = blame(email, puzzle)
+@app.get('/blame/{uuid}')
+async def blame_score(uuid, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today()) - 1):
+    msg = blame(uuid, puzzle)
     return {'msg': msg}
 
 @app.get('/calculate-daily/')
