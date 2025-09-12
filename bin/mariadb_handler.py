@@ -20,16 +20,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import mariadb
 
-def create_wordle_db(config):
-    try:
-        conn = mariadb.connect(
+def connect_db(config):
+    conn = mariadb.connect(
             user=config['mariadb']['user'],
             password=config['mariadb']['password'],
             host=config['mariadb']['host'],
             port=config['mariadb']['port'],
             database=config['mariadb']['database'],
         )
-        cur = conn.cursor()
+    cur = conn.cursor()
+    return conn, cur
+
+def create_wordle_db(config):
+    try:
+        conn, cur = connect_db(config)
         cur.execute("CREATE TABLE IF NOT EXISTS `players` (`player_name` text NOT NULL,`player_mu` float NOT NULL,`player_sigma` float NOT NULL,`player_ord` float DEFAULT NULL,`elo_delta` double DEFAULT NULL,`ord_delta` double DEFAULT NULL,`mu_delta` double DEFAULT NULL,`sigma_delta` double DEFAULT NULL,`player_id` int(11) NOT NULL AUTO_INCREMENT,`player_platform` text NOT NULL,`player_uuid` text NOT NULL,PRIMARY KEY (`player_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;")
         cur.execute("CREATE TABLE IF NOT EXISTS `scores` (`id` int(11) NOT NULL AUTO_INCREMENT,`player_id` int(11) DEFAULT NULL,`puzzle` int(11) DEFAULT NULL,`raw_score` text DEFAULT NULL,`score` int(11) DEFAULT NULL,`calculated_score` int(11) DEFAULT NULL,`hard_mode` int(11) DEFAULT NULL,`elo` double DEFAULT NULL,`mu` double DEFAULT NULL,`sigma` double DEFAULT NULL,`ordinal` double DEFAULT NULL,`elo_delta` double DEFAULT NULL,`ordinal_delta` double DEFAULT NULL,PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;")
         conn.commit()
@@ -40,14 +44,7 @@ def create_wordle_db(config):
         return False
 
 def update_entry(config: dict, id: int, data: dict):
-    conn = mariadb.connect(
-        user=config['mariadb']['user'],
-        password=config['mariadb']['password'],
-        host=config['mariadb']['host'],
-        port=config['mariadb']['port'],
-        database=config['mariadb']['database'],
-    )
-    cur = conn.cursor()
+    conn, cur = connect_db(config)
 
     # Code to actually do stuff
 
@@ -82,14 +79,7 @@ def update_entry(config: dict, id: int, data: dict):
     conn.close()
 
 def add_entry(config: dict, data: dict):
-    conn = mariadb.connect(
-        user=config['mariadb']['user'],
-        password=config['mariadb']['password'],
-        host=config['mariadb']['host'],
-        port=config['mariadb']['port'],
-        database=config['mariadb']['database'],
-    )
-    cur = conn.cursor()
+    conn, cur = connect_db(config)
 
     cols = ""
     vals = ""
@@ -117,17 +107,38 @@ def add_entry(config: dict, data: dict):
     conn.commit()
     conn.close()
 
+def register_player(config: dict, player_data: dict):
+    conn, cur = connect_db(config)
+
+    cols = ""
+    vals = ""
+    i = 1
+    for k, v in player_data.items():
+        if i == len(player_data):
+            if (isinstance(v, int) or isinstance(v, float)):
+                cols = f"{cols} {k}"
+                vals = f"{vals} {v}"
+            else:
+                cols = f"{cols} {k}"
+                vals = f"{vals} '{v}'"
+        else:
+            if (isinstance(v, int) or isinstance(v, float)):
+                cols = f"{cols} {k},"
+                vals = f"{vals} {v},"
+            else:
+                cols = f"{cols} {k},"
+                vals = f"{vals} '{v}',"
+        i += 1
+
+    query_string = f"INSERT INTO players ({cols}) VALUES ({vals})"
+    cur.execute(query_string)
+
+    conn.commit()
+    conn.close()
+
 def get_entries(config: dict, query_params: str):
-    conn = mariadb.connect(
-        user=config['mariadb']['user'],
-        password=config['mariadb']['password'],
-        host=config['mariadb']['host'],
-        port=config['mariadb']['port'],
-        database=config['mariadb']['database'],
-    )
-    cur = conn.cursor()
+    conn, cur = connect_db(config)
     
-    # Code to actually do stuff
     cols = [
         'id', 
         'player_id', 
@@ -176,15 +187,8 @@ def get_entries(config: dict, query_params: str):
     conn.close()
     return score_data
 
-def lookup_player(config: dict, player_uuid: str):
-    conn = mariadb.connect(
-        user=config['mariadb']['user'],
-        password=config['mariadb']['password'],
-        host=config['mariadb']['host'],
-        port=config['mariadb']['port'],
-        database=config['mariadb']['database'],
-    )
-    cur = conn.cursor()
+def lookup_player(config: dict, player_uuid: str = False, player_id: int = False):
+    conn, cur = connect_db(config)
 
     cols = [
         'player_id', 
@@ -212,7 +216,10 @@ def lookup_player(config: dict, player_uuid: str):
         query_string = f"{query_string}{query_add}"
         i += 1
 
-    query_string = f"{query_string}FROM players WHERE player_uuid = '{player_uuid}'"
+    if player_uuid:
+        query_string = f"{query_string}FROM players WHERE player_uuid = '{player_uuid}'"
+    elif player_id:
+        query_string = f"{query_string}FROM players WHERE player_id = '{player_id}'"
     cur.execute(query_string)
     player_raw = cur.fetchall()
     if player_raw == []:
