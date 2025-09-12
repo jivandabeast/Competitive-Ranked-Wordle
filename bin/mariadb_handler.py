@@ -43,37 +43,50 @@ def create_wordle_db(config):
         print(e)
         return False
 
-def update_entry(config: dict, id: int, data: dict):
+def update_score_entry(config: dict, id: int, data: dict):
     conn, cur = connect_db(config)
 
-    # Code to actually do stuff
+    new_fields = ""
+    i = 1
+    for k, v in data.items():
+        if i == len(data):
+            if (isinstance(v, int) or isinstance(v, float)):
+                new_fields = f"{new_fields} {k} = {v}"
+            else:
+                new_fields = f"{new_fields} {k} = '{v}'"
+        else:
+            if (isinstance(v, int) or isinstance(v, float)):
+                new_fields = f"{new_fields} {k} = {v},"
+            else:
+                new_fields = f"{new_fields} {k} = '{v}',"
+        i += 1
 
-    # def update_entry(id: int, data: dict):
-    #     """
-    #     Update an entry in the db
-    #     """
-    #     with sqlite3.connect(config['database']) as db:
-    #         db_cursor = db.cursor()
-    #         new_fields = ""
-    #         i = 1
-    #         for k, v in data.items():
-    #             if i == len(data):
-    #                 if (isinstance(v, int) or isinstance(v, float)):
-    #                     new_fields = f"{new_fields} {k} = {v}"
-    #                 else:
-    #                     new_fields = f"{new_fields} {k} = '{v}'"
-    #             else:
-    #                 if (isinstance(v, int) or isinstance(v, float)):
-    #                     new_fields = f"{new_fields} {k} = {v},"
-    #                 else:
-    #                     new_fields = f"{new_fields} {k} = '{v}',"
-    #             i += 1
+    query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
+    cur.execute(query_string)
 
-    #         query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
-    #         db_cursor.execute(query_string)
-    #         db_cursor.close()
-    #         db.commit()
-    #         logging.debug(f"Updated row in scores: {query_string}")
+    conn.commit()
+    conn.close()
+
+def update_player_entry(config: dict, player_id: int, data: dict):
+    conn, cur = connect_db(config)
+
+    new_fields = ""
+    i = 1
+    for k, v in data.items():
+        if i == len(data):
+            if (isinstance(v, int) or isinstance(v, float)):
+                new_fields = f"{new_fields} {k} = {v}"
+            else:
+                new_fields = f"{new_fields} {k} = '{v}'"
+        else:
+            if (isinstance(v, int) or isinstance(v, float)):
+                new_fields = f"{new_fields} {k} = {v},"
+            else:
+                new_fields = f"{new_fields} {k} = '{v}',"
+        i += 1
+
+    query_string = f"UPDATE players SET{new_fields} WHERE player_id = {player_id}"
+    cur.execute(query_string)
 
     conn.commit()
     conn.close()

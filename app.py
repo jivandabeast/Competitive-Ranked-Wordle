@@ -59,7 +59,7 @@ from pydantic import BaseModel
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
 
-from bin.mariadb_handler import create_wordle_db, update_entry, add_entry, get_entries, lookup_player, register_player
+from bin.mariadb_handler import create_wordle_db, update_player_entry, update_score_entry, add_entry, get_entries, lookup_player, register_player
 from bin.utilities import parse_score, get_wordle_puzzle, calculate_elo
 
 # ---
@@ -199,49 +199,40 @@ def calculate_openskill(puzzle: int):
         update_entry(entry['id'], data)
         i += 1
 
-def get_player_elos(players: list):
-    # DELETE
-    # FUNCTIONALITY MOSTLY PROVIDED BY LOOKUP FUNCTION
-    query_string = "SELECT DISTINCT player_email FROM scores"
-    entries = get_entries(query_string)
-    ratings = {}
-    for player in entries:
-        if player['player_email'] in players:
-            query_string = f"SELECT elo, puzzle FROM scores WHERE player_email = '{player['player_email']}' AND elo NOT NULL ORDER BY puzzle DESC LIMIT 1"
-            elo = get_entries(query_string)
-            if elo == []:
-                ratings[player['player_email']] = 400
-            else:
-                ratings[player['player_email']] = elo[0]['elo']
-    return ratings
-
 def calculate_match_elo(puzzle: int):
     """
     Legacy ELO Calculation
     Translate rankings into 1-1 matches between each player, then sum the elo change
     """
-    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(query_string)
+    query_params = f"WHERE puzzle = {puzzle} AND hard_mode = 1"
+    entries = get_entries(config, query_params)
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
-            elos = get_player_elos([entry['player_email']])
-            data = {
-                'elo': elos[entry['player_email']],
+            player_data = lookup_player(config, player_id=entry['player_id'])
+            score_data = {
+                'elo': player_data['player_elo'],
                 'elo_delta': 0,
             }
-            update_entry(entry['id'], data)
+            players_data = {
+                'elo_delta': 0
+            }
+            update_score_entry(config, entry['id'], score_data)
+            update_player_entry(config, entry['player_id'], players_data)
+
         return False
-    # ranked_players = sorted(entries, key=lambda x: x['calculated_score'], reverse=True)
     
-    player_emails = []
+    player_ids = []
     grouped = {i: [] for i in range(7)}  # Initialize keys 0 through 6
     for entry in entries:
         score = entry.get('calculated_score')
         grouped[score].append(entry)
-        player_emails.append(entry['player_email'])
+        player_ids.append(entry['player_id'])
 
-    current_ratings = get_player_elos(player_emails)
+    current_ratings = {}
+    for id in player_ids:
+        player_data = lookup_player(config, player_id=id)
+        current_ratings[id] = player_data['player_elo']
 
     for player in entries:
         overall_change = 0
@@ -249,7 +240,7 @@ def calculate_match_elo(puzzle: int):
             if player['calculated_score'] > i:
                 # win condition
                 for opp in grouped[i]:
-                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 1)
+                    change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 1)
                     overall_change += change
             elif player['calculated_score'] == i:
                 # draw condition
@@ -257,18 +248,23 @@ def calculate_match_elo(puzzle: int):
                     if player == opp:
                         # Player is included in this, do not calculate against themselves
                         continue
-                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0.5)
+                    change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 0.5)
                     overall_change += change
             else:
                 # loss condition
                 for opp in grouped[i]:
-                    change = calculate_elo(current_ratings[player['player_email']], current_ratings[opp['player_email']], 0)
+                    change = calculate_elo(current_ratings[player['player_id']], current_ratings[opp['player_id']], 0)
                     overall_change += change
-        data = {
-            'elo': current_ratings[player['player_email']] + overall_change,
+        score_data = {
+            'elo': current_ratings[player['player_id']] + overall_change,
             'elo_delta': overall_change
         }
-        update_entry(player['id'], data)
+        players_data = {
+            'player_elo': current_ratings[player['player_id']] + overall_change,
+            'elo_delta': overall_change
+        }
+        update_score_entry(config, player['id'], score_data)
+        update_player_entry(config, player['player_id'], players_data)
         
 def blame(email: str, puzzle: int):
     """
@@ -743,7 +739,7 @@ async def blame_score(email, current_user: Annotated[User, Depends(get_current_a
 async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle_date: date = date.today()):
     puzzle = get_wordle_puzzle(puzzle_date)
     if check_players(puzzle, puzzle, True):
-        calculate_openskill(puzzle)
+        # calculate_openskill(puzzle)
         calculate_match_elo(puzzle)
     else:
         pass
