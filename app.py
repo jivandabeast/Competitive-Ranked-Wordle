@@ -43,7 +43,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import os
 import json
 import yaml
-import sqlite3
 import logging
 import re
 import math
@@ -60,108 +59,7 @@ from pydantic import BaseModel
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
 
-# ---
-# Database Operations
-# ---
-
-def check_db(config: dict):
-    """
-    Load sqlite3 db connection
-    Inputs:
-        config  obj     App configuration
-    Outputs:
-        db              DB connection
-    """
-    try:
-        with sqlite3.connect(config['database']) as db:
-            sq_cursor = db.cursor()
-
-            # Check if the scores table is created, if not then make it
-            try:
-                sq_cursor.execute('SELECT * FROM scores LIMIT 5')
-                logging.debug(f"{config['database']} table 'scores' exists.")
-            except sqlite3.OperationalError:
-                sq_cursor.execute("CREATE TABLE scores(id integer primary key autoincrement, player_email text, player_name text, puzzle integer, raw_score text, score integer, calculated_score integer, hard_mode integer, elo real, mu real, sigma real, ordinal real, elo_delta real, ordinal_delta real)")
-                db.commit()
-                logging.debug(f"{config['database']} table 'scores' created.")
-            
-            sq_cursor.close()
-            return True
-    except:
-        return False
-
-def update_entry(id: int, data: dict):
-    """
-    Update an entry in the db
-    """
-    with sqlite3.connect(config['database']) as db:
-        db_cursor = db.cursor()
-        new_fields = ""
-        i = 1
-        for k, v in data.items():
-            if i == len(data):
-                if (isinstance(v, int) or isinstance(v, float)):
-                    new_fields = f"{new_fields} {k} = {v}"
-                else:
-                    new_fields = f"{new_fields} {k} = '{v}'"
-            else:
-                if (isinstance(v, int) or isinstance(v, float)):
-                    new_fields = f"{new_fields} {k} = {v},"
-                else:
-                    new_fields = f"{new_fields} {k} = '{v}',"
-            i += 1
-
-        query_string = f"UPDATE scores SET{new_fields} WHERE id = {id}"
-        db_cursor.execute(query_string)
-        db_cursor.close()
-        db.commit()
-        logging.debug(f"Updated row in scores: {query_string}")
-
-def add_entry(data: dict):
-    """
-    Add a wordle score entry to the db
-    """
-    with sqlite3.connect(config['database']) as db:
-        db_cursor = db.cursor()
-        cols = ""
-        vals = ""
-        i = 1
-        for k, v in data.items():
-            if i == len(data):
-                if (isinstance(v, int) or isinstance(v, float)):
-                    cols = f"{cols} {k}"
-                    vals = f"{vals} {v}"
-                else:
-                    cols = f"{cols} {k}"
-                    vals = f"{vals} '{v}'"
-            else:
-                if (isinstance(v, int) or isinstance(v, float)):
-                    cols = f"{cols} {k},"
-                    vals = f"{vals} {v},"
-                else:
-                    cols = f"{cols} {k},"
-                    vals = f"{vals} '{v}',"
-            i += 1
-
-        query_string = f"INSERT INTO scores ({cols}) VALUES ({vals})"
-        db_cursor.execute(query_string)
-        db.commit()
-        db_cursor.close()
-        logging.debug(f"Added row in scores: {query_string}")
-
-def get_entries(query_string: str):
-    """
-    Get rows for a given puzzle
-    """
-    with sqlite3.connect(config['database']) as db:
-        db_cursor = db.cursor()
-        db_cursor.execute(query_string)
-        rows = db_cursor.fetchall()
-        logging.debug(f"Sending query to DB: {query_string}")
-        cols = [col[0] for col in db_cursor.description]
-        data = [dict(zip(cols, row)) for row in rows]
-        db_cursor.close()
-        return data
+from bin.mariadb_handler import create_wordle_db, update_entry, add_entry, get_entries, lookup_player
 
 # ---
 # Data Definitions
@@ -181,9 +79,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES: str = config['security']['token_expiration']
 USERS: str = config['security']['users']
 
 class Score(BaseModel):
-    name: str
+    # name: str
     score: str
-    email: str
+    # email: str
+    uuid: str
 
 class Token(BaseModel):
     access_token: str
@@ -210,7 +109,8 @@ class UserInDB(User):
 
 logging.basicConfig(filename=config['log_file'], level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 app = FastAPI()
-if check_db(config):
+if create_wordle_db(config):
+# if check_db(config):
     pass
 else:
     raise(TypeError("DB Failed to Init Properly"))
@@ -904,21 +804,36 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
     """
     Add player score to DB
     """
+    player_data = lookup_player(config, score.uuid)
+    if player_data == {}:
+        return {
+            'status': 404,
+            'msg': f"{score.uuid} is not registered for Wordle!"
+        }
     data = parse_score(score.score)
-    data['player_email'] = score.email
-    data['player_name'] = score.name
+    data['player_id'] = player_data['player_id']
     data ['raw_score'] = score.score
-    add_entry(data)
+    add_entry(config, data)
     return data
 
-@app.get('/score/{email}')
-async def get_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
-    query_string = f"SELECT puzzle, score, calculated_score, elo, mu, sigma FROM scores WHERE puzzle = {puzzle} AND player_email = '{email}'"
-    data = get_entries(query_string)
-    if data == []:
-        return {'status': 404, 'msg': f'{email} did not played today :('}
+@app.get('/score/{uuid}')
+async def get_score(uuid, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
+    player_data = lookup_player(config, uuid)
+
+    if player_data == {}:
+        return {
+            'status': 404,
+            'msg': f"{uuid} is not registered for Wordle!"
+        }
+
+    query_params = f"WHERE puzzle = {puzzle} AND player_id = {player_data['player_id']}"
+    score_data = get_entries(config, query_params)
+    if score_data == []:
+        return {'status': 404, 'msg': f'{player_data['player_name']} did not played today :('}
     else:
-        return data[0]
+        score_data = score_data[0]
+        score_data['player_information'] = player_data
+        return score_data
 
 @app.get('/blame/{email}')
 async def blame_score(email, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today()) - 1):

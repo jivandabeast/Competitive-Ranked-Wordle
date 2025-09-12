@@ -3,6 +3,7 @@
 Input/
 Output/
 __pycache__/
+data/
 
 # Files
 *.pyc
