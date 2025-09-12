@@ -141,47 +141,41 @@ def calculate_openskill(puzzle: int):
     """
     Calculate Openskill rankings for a given day
     """
-    query_string = f"SELECT * FROM scores WHERE puzzle = {puzzle} AND hard_mode = 1"
-    entries = get_entries(query_string)
+    query_params = f"WHERE puzzle = {puzzle} AND hard_mode = 1"
+    entries = get_entries(config, query_params)
     if len(entries) == 1:
         # Don't do calculations when only one player submits
         for entry in entries:
-            query_string = f"SELECT * FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL and mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
-            player_data = get_entries(query_string)
-            if player_data == []:
-                player = model.rating(name=entry['player_email'])
-                data = {
-                    'sigma': player.sigma,
-                    'mu': player.mu,
-                    'ordinal': player.ordinal(),
-                    'ordinal_delta': player.ordinal()
-                }
-            else:
-                player = player_data[0]
-                data = {
-                    'sigma': player['sigma'],
-                    'mu': player['mu'],
-                    'ordinal': player['ordinal'],
-                    'ordinal_delta': 0,
-                }
-            update_entry(entry['id'], data)
+            player_data = lookup_player(config, player_id=entry['player_id'])
+            score_data = {
+                'mu': player_data['player_mu'],
+                'sigma': player_data['player_sigma'],
+                'ordinal': player_data['player_ord'],
+                'ordinal_delta': 0
+            }
+            players_data = {
+                'ord_delta': 0,
+                'mu_delta': 0,
+                'sigma_delta': 0
+            }
+            update_score_entry(config, entry['id'], score_data)
+            update_player_entry(config, entry['player_id'], players_data)
         return False
     
     players = []
     scores = []
-    ords = {}
+    player_stats = {}
 
     for entry in entries:
-        query_string = f"SELECT mu, sigma, ordinal FROM scores WHERE player_email = '{entry['player_email']}' AND sigma IS NOT NULL AND mu IS NOT NULL ORDER BY puzzle DESC LIMIT 1"
-        player_data = get_entries(query_string)
-        if player_data == []:
-            players.append([model.rating(name=entry['player_email'])])
-            ords[entry['player_email']] = 0
-        else:
-            player_data = player_data[0]
-            players.append([model.rating(name=entry['player_email'], mu=player_data['mu'], sigma=player_data['sigma'])])
-            ords[entry['player_email']] = player_data['ordinal']
+        player_data = lookup_player(config, player_id=entry['player_id'])
+        players.append([model.rating(name=str(entry['player_id']), mu=player_data['player_mu'], sigma=player_data['player_sigma'])])
         scores.append(entry['calculated_score'])
+
+        player_stats[entry['player_id']] = {
+            'ordinal': player_data['player_ord'],
+            'mu': player_data['player_mu'],
+            'sigma': player_data['player_sigma']
+        }
 
     match_scores = model.rate(players, scores=scores)
 
@@ -189,14 +183,24 @@ def calculate_openskill(puzzle: int):
     for entry in entries:
         player = match_scores[i][0]
 
-        data = {
+        score_data = {
             'sigma': player.sigma,
             'mu': player.mu,
             'ordinal': player.ordinal(),
-            'ordinal_delta': ords[entry['player_email']] - player.ordinal()
+            'ordinal_delta': player.ordinal() - player_stats[entry['player_id']]['ordinal']
         }
 
-        update_entry(entry['id'], data)
+        players_data = {
+            'player_mu': player.mu,
+            'player_sigma': player.sigma,
+            'player_ord': player.ordinal(),
+            'ord_delta': player.ordinal() - player_stats[entry['player_id']]['ordinal'],
+            'mu_delta': player.mu - player_stats[entry['player_id']]['mu'],
+            'sigma_delta': player.sigma - player_stats[entry['player_id']]['sigma']
+        }
+
+        update_score_entry(config, entry['id'], score_data)
+        update_player_entry(config, entry['player_id'], players_data)
         i += 1
 
 def calculate_match_elo(puzzle: int):
@@ -739,7 +743,7 @@ async def blame_score(email, current_user: Annotated[User, Depends(get_current_a
 async def calculate_daily(current_user: Annotated[User, Depends(get_current_active_user)], puzzle_date: date = date.today()):
     puzzle = get_wordle_puzzle(puzzle_date)
     if check_players(puzzle, puzzle, True):
-        # calculate_openskill(puzzle)
+        calculate_openskill(puzzle)
         calculate_match_elo(puzzle)
     else:
         pass
