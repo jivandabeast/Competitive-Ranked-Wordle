@@ -411,15 +411,15 @@ def get_weekly_report(end_date: date):
     start = get_wordle_puzzle(start_date)
     players = defaultdict(list)
     player_stats = {}
+    player_data = get_all_players(config)
 
-    query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score FROM scores WHERE puzzle >= {start} and puzzle <= {end}"
-    entries = get_entries(query_string)
+    query_params = f"WHERE puzzle >= {start} and puzzle <= {end}"
+    entries = get_entries(config, query_params)
     for entry in entries:
-        players[entry['player_name']].append(entry)
+        players[entry['player_id']].append(entry)
     
     players = dict(players)
     for player, scores in players.items():
-        # all_scores = list(map(lambda s: s['score'], scores))
         player_stats[player] = {}
 
         all_scores = []
@@ -441,94 +441,16 @@ def get_weekly_report(end_date: date):
     
     # sort player_stats by end ordinal
     sorted_keys = sorted(player_stats, key=lambda k: player_stats[k]['end_ord'], reverse=True)
-    sorted_player_stats = {}
+    raw_sorted_player_stats = {}
     for key in sorted_keys:
-        sorted_player_stats[key] = player_stats[key]
+        raw_sorted_player_stats[key] = player_stats[key]
 
-    with open(config['adaptive_card'], 'r') as f:
-        adaptive_card = json.load(f)
+    sorted_player_stats = {}
+    for k, v in raw_sorted_player_stats.items():
+        player_name = match_player_name(player_data, player_id=k)
+        sorted_player_stats[player_name] = v
 
-    adaptive_card['body'][0]['inlines'][0]['text'] = 'Wordle Overall Standings'
-    cols = 4
-    headers = ['Wordler', 'ELO', 'OpenSkill', 'Average Attempts']
-
-    for i in range(cols):
-        col = {
-            "width": 1
-        }
-        adaptive_card['body'][1]['columns'].append(col)
-    
-    header_row = {
-        "type": "TableRow",
-        "cells": []
-    }
-    for header in headers:
-        cell = {
-            "type": "TableCell",
-                "items": [
-                    {
-                        "type": "TextBlock",
-                        "text": header,
-                        "wrap": True
-                    }
-                ]
-        }
-        header_row['cells'].append(cell)
-
-    adaptive_card['body'][1]['rows'].append(header_row)
-
-    rows = []
-    for player, stats in sorted_player_stats.items():
-        row = {
-            "type": "TableRow",
-            "cells": [
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": player,
-                                "wrap": True
-                            }
-                        ]
-                },
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": f"{round(stats['end_elo'], 2)}\n\nΔ {stats['elo_change']}",
-                                "wrap": True
-                            }
-                        ]
-                },
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": f"{round(stats['end_ord'], 2)}\n\nΔ {stats['ord_change']}",
-                                "wrap": True
-                            }
-                        ]
-                },
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": str(stats['average_score']),
-                                "wrap": True
-                            }
-                        ]
-                }
-            ]
-        }
-        rows.append(row)
-    adaptive_card['body'][1]['rows'].extend(rows)
     output = {
-        'adaptive_card': adaptive_card,
-        'player_stats': player_stats,
         'sorted_player_stats': sorted_player_stats
     }
     return output
