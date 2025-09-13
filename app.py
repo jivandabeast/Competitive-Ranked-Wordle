@@ -7,6 +7,7 @@ Authors: Jivan RamjiSingh
 TODO:
     P0:
         - Add de-duplication for score recording
+        - Add de-duplication for registration
         - Fix non-hard-mode submission rating carry
         - Add functionality for MariaDB
         - Build functionality to enable cross-platform play (portable user accounts)
@@ -543,21 +544,38 @@ async def login_for_access_token(
     return Token(access_token=access_token, token_type="bearer")
 
 @app.post('/register')
-async def register(player_data: Player):
-    player = model.rating(name='test')
+async def register(player_data: Player, current_user: Annotated[User, Depends(get_current_active_user)]):
     player_data = dict(player_data)
-    player_data.update({
-        'player_elo': 400,
-        'player_sigma': player.sigma,
-        'player_mu': player.mu,
-        'player_ord': player.ordinal(),
-        'elo_delta': 0,
-        'ord_delta': 0,
-        'mu_delta': 0,
-        'sigma_delta': 0,
-    })
-    register_player(config, player_data)
-    return player_data
+    data = lookup_player(config, player_uuid=player_data['player_uuid'])
+    if data == {}:
+        player = model.rating(name='test')
+        player_data.update({
+            'player_elo': 400,
+            'player_sigma': player.sigma,
+            'player_mu': player.mu,
+            'player_ord': player.ordinal(),
+            'elo_delta': 0,
+            'ord_delta': 0,
+            'mu_delta': 0,
+            'sigma_delta': 0,
+        })
+        register_player(config, player_data)
+        return player_data
+    else:
+        return {'status': 409}
+        
+
+@app.post('/update-registration')
+async def update_registration(player_data: Player, current_user: Annotated[User, Depends(get_current_active_user)]):
+    players = get_all_players(config)
+    player_data = dict(player_data)
+    for player in players:
+        if player['player_uuid'] == player_data['player_uuid']:
+            data = {
+                'player_name': player_data['player_name']
+            }
+            update_player_entry(config, player['player_id'], data)
+            return lookup_player(config, player_uuid=player_data['player_uuid'])
 
 @app.post('/add-score/')
 async def add_score(score: Score, current_user: Annotated[User, Depends(get_current_active_user)]):
@@ -576,6 +594,7 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
     data ['raw_score'] = score.score
     # ADD DUPLICATION CHECK HERE
     add_entry(config, data)
+    data['player_name'] = player_data['player_name']
     return data
 
 @app.get('/score/{uuid}')
