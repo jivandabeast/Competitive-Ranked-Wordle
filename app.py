@@ -475,7 +475,6 @@ def get_user(db, username: str):
         user_dict = db[username]
         return UserInDB(**user_dict)
 
-
 def authenticate_user(fake_db, username: str, password: str):
     user = get_user(fake_db, username)
     if not user:
@@ -483,7 +482,6 @@ def authenticate_user(fake_db, username: str, password: str):
     if not verify_password(password, user.hashed_password):
         return False
     return user
-
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
@@ -513,7 +511,6 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     if user is None:
         raise credentials_exception
     return user
-
 
 async def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -589,13 +586,22 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
             'msg': f"{score.uuid} is not registered for Wordle!"
         }
     data = parse_score(score.score)
-    # ADD HARD MODE CHECK HERE
-    data['player_id'] = player_data['player_id']
-    data ['raw_score'] = score.score
-    # ADD DUPLICATION CHECK HERE
-    add_entry(config, data)
-    data['player_name'] = player_data['player_name']
-    return data
+    score_data = get_entries(config, f"WHERE player_id = {player_data['player_id']} AND puzzle = {data['puzzle']}")
+    if score_data == []:
+        data['player_id'] = player_data['player_id']
+        data ['raw_score'] = score.score
+        if data['hard_mode'] == 0:
+            data['elo'] = player_data['player_elo']
+            data['mu'] = player_data['player_mu']
+            data['sigma'] = player_data['player_sigma']
+            data['ordinal'] = player_data['player_ord']
+            data['elo_delta'] = player_data['elo_delta']
+            data['ordinal_delta'] = player_data['ord_delta']
+        add_entry(config, data)
+        data['player_name'] = player_data['player_name']
+        return data
+    else:
+        return {'status': 409}
 
 @app.get('/score/{uuid}')
 async def get_score(uuid, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
