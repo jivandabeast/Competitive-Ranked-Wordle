@@ -6,19 +6,11 @@ Authors: Jivan RamjiSingh
 
 TODO:
     P0:
-        - Add de-duplication for score recording
-        - Add de-duplication for registration
-        - Fix non-hard-mode submission rating carry
-        - Add functionality for MariaDB
-        - Build functionality to enable cross-platform play (portable user accounts)
     P1:
         - Add functionality for generating performance charts
         - Set margin parameter for PlackettLuce model to account for match skill
         - Add ELO and OpenSkill decay (pending rate determination)
-        - Create "first run" script to build database and tables
     P2:
-        - Split script into multiple parts to simply maintenance and readability
-        - Add msteams adaptive card for the EOD roundup
         - Lots of documentation
 
 Copyright (C) 2025  Jivan RamjiSingh
