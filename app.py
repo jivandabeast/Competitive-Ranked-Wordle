@@ -59,8 +59,8 @@ from pydantic import BaseModel
 from pydantic import BaseModel
 from openskill.models import PlackettLuce
 
-from bin.mariadb_handler import create_wordle_db, update_player_entry, update_score_entry, add_entry, get_entries, lookup_player, register_player
-from bin.utilities import parse_score, get_wordle_puzzle, calculate_elo
+from bin.mariadb_handler import create_wordle_db, update_player_entry, update_score_entry, add_entry, get_entries, lookup_player, register_player, get_all_players
+from bin.utilities import parse_score, get_wordle_puzzle, calculate_elo, match_player_name
 
 # ---
 # Data Definitions
@@ -365,11 +365,12 @@ def get_daily_report(today: date):
     puzzle = get_wordle_puzzle(today - timedelta(days=1))
     players = defaultdict(list)
     player_stats = {}
+    player_data = get_all_players(config)
 
-    query_string = f"SELECT player_name, player_email, elo, mu, sigma, puzzle, score, ordinal, ordinal_delta, elo_delta FROM scores WHERE puzzle = {puzzle}"
-    entries = get_entries(query_string)
+    query_params = f"WHERE puzzle = {puzzle}"
+    entries = get_entries(config, query_params)
     for entry in entries:
-        players[entry['player_name']].append(entry)
+        players[entry['player_id']].append(entry)
     
     players = dict(players)
     for player, scores in players.items():
@@ -384,84 +385,16 @@ def get_daily_report(today: date):
     
     # sort player_stats by end ordinal
     sorted_keys = sorted(player_stats, key=lambda k: player_stats[k]['end_ord'], reverse=True)
-    sorted_player_stats = {}
+    raw_sorted_player_stats = {}
     for key in sorted_keys:
-        sorted_player_stats[key] = player_stats[key]
+        raw_sorted_player_stats[key] = player_stats[key]
 
-    with open(config['adaptive_card'], 'r') as f:
-        adaptive_card = json.load(f)
+    sorted_player_stats = {}
+    for k, v in raw_sorted_player_stats.items():
+        player_name = match_player_name(player_data, player_id=k)
+        sorted_player_stats[player_name] = v
 
-    adaptive_card['body'][0]['inlines'][0]['text'] = f"{today.isoformat()}: Wordle Report"
-    cols = 3
-    headers = ['Wordler', 'ELO', 'OpenSkill']
-
-    for i in range(cols):
-        col = {
-            "width": 1
-        }
-        adaptive_card['body'][1]['columns'].append(col)
-    
-    header_row = {
-        "type": "TableRow",
-        "cells": []
-    }
-    for header in headers:
-        cell = {
-            "type": "TableCell",
-                "items": [
-                    {
-                        "type": "TextBlock",
-                        "text": header,
-                        "wrap": True
-                    }
-                ]
-        }
-        header_row['cells'].append(cell)
-
-    adaptive_card['body'][1]['rows'].append(header_row)
-
-    rows = []
-    for player, stats in sorted_player_stats.items():
-        row = {
-            "type": "TableRow",
-            "cells": [
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": player,
-                                "wrap": True
-                            }
-                        ]
-                },
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": f"{stats['end_elo']}\n\nΔ {stats['elo_change']}",
-                                "wrap": True
-                            }
-                        ]
-                },
-                {
-                    "type": "TableCell",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": f"{stats['end_ord']}\n\nΔ {stats['ord_change']}",
-                                "wrap": True
-                            }
-                        ]
-                }
-            ]
-        }
-        rows.append(row)
-    adaptive_card['body'][1]['rows'].extend(rows)
     output = {
-        'adaptive_card': adaptive_card,
-        'player_stats': player_stats,
         'sorted_player_stats': sorted_player_stats
     }
     return output

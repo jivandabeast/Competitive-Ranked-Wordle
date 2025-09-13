@@ -249,10 +249,47 @@ def lookup_player(config: dict, player_uuid: str = False, player_id: int = False
     conn.close()
     return player_data
 
-if __name__ == '__main__':
-    import yaml
-    import os
-    config_file = os.getenv('CONFIG_FILE', 'config.yml')
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
-    lookup_player(config, "jivandabeast")
+def get_all_players(config: dict):
+    conn, cur = connect_db(config)
+
+    cols = [
+        'player_id', 
+        'player_uuid', 
+        'player_name', 
+        'player_platform', 
+        'player_mu', 
+        'player_sigma', 
+        'player_ord', 
+        'player_elo', 
+        'elo_delta', 
+        'ord_delta', 
+        'mu_delta', 
+        'sigma_delta' 
+    ]
+
+    query_string = f"SELECT "
+    i = 1
+    for col in cols:
+        query_add = ""
+        if i == len(cols):
+            query_add = f"{col} "
+        else:
+            query_add = f"{col}, "
+        query_string = f"{query_string}{query_add}"
+        i += 1
+
+    query_string = f"{query_string}FROM players"
+    cur.execute(query_string)
+    player_raw = cur.fetchall()
+
+    players = []
+    for player in player_raw:
+        player_data = {}
+        i = 0
+        for cell in player:
+            player_data[cols[i]] = cell
+            i += 1
+        players.append(player_data)
+
+    conn.close()
+    return players

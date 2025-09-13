@@ -79,3 +79,12 @@ def calculate_elo(player_a_elo, player_b_elo, result):
     prob = 1.0 / (1 + math.pow(10, (player_b_elo - player_a_elo) / 400.0))
     elo_change = 32 * (result - prob)
     return elo_change
+
+def match_player_name(player_data: list, player_id: int = False, player_uuid: str = False):
+    for player in player_data:
+        if player_id:
+            if player['player_id'] == player_id:
+                return player['player_name']
+        elif player_uuid:
+            if player['player_uuid'] == player_uuid:
+                return player['player_name']
