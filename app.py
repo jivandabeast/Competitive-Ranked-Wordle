@@ -661,3 +661,9 @@ async def weekly_summary(current_user: Annotated[User, Depends(get_current_activ
     else:
         data = {'status': 404, 'msg': 'Nobody played today :('}
     return jsonable_encoder(data)
+
+@app.get('/leaderboard')
+async def leaderboard(current_user: Annotated[User, Depends(get_current_active_user)]):
+    player_data = get_all_players(config)
+    sorted_player_data = sorted(player_data, key=lambda player: player['player_ord'], reverse=True)
+    return sorted_player_data
