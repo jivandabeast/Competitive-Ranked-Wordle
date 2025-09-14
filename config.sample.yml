@@ -1,4 +1,10 @@
 database: "/data/wordle.db"
+mariadb:
+  user:
+  password:
+  host:
+  port:
+  database:
 log_file: "/data/Output/log.log"
 adaptive_card: "adaptive_card.json"
 elo:
