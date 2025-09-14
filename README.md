@@ -23,7 +23,7 @@ Backend API based server for handling competitive multiplayer games of Wordle.
 
    `cd Competitive-Ranked-Wordle`
 
-   `docker built -t competitive-ranked-wordle .`
+   `docker build -t competitive-ranked-wordle .`
 
 3. Create a folder for the resources & create required files
 
