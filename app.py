@@ -455,6 +455,14 @@ def elo_decay():
     """
     pass
 
+def is_puzzle_valid(puzzle: int):
+    current_puzzle = get_wordle_puzzle(date.today())
+    print(current_puzzle)
+    if current_puzzle <= puzzle:
+        return True
+    else:
+        return False
+
 # ---
 # FastAPI Security Functions
 # ---
@@ -589,11 +597,20 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
             data['ordinal'] = player_data['player_ord']
             data['elo_delta'] = player_data['elo_delta']
             data['ordinal_delta'] = player_data['ord_delta']
-        add_entry(config, data)
-        data['player_name'] = player_data['player_name']
-        return data
+        if is_puzzle_valid(data['puzzle']):
+            add_entry(config, data)
+            data['player_name'] = player_data['player_name']
+            return data
+        else:
+            return {
+                'status': 409,
+                'msg': f"The window for submitting Wordle #{data['puzzle']} is closed!"
+            }
     else:
-        return {'status': 409}
+        return {
+            'status': 409,
+            'msg': f"{player_data['player_name']} already submitted Wordle #{data['puzzle']}"
+        }
 
 @app.get('/score/{uuid}')
 async def get_score(uuid, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
