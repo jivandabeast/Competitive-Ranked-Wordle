@@ -17,24 +17,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import os
-import json
-import yaml
-import logging
 import re
 import math
-import jwt
-from typing import Annotated
-from collections import defaultdict
-from datetime import date, timedelta, timezone, datetime
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.encoders import jsonable_encoder
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jwt.exceptions import InvalidTokenError
-from passlib.context import CryptContext
-from pydantic import BaseModel
-from pydantic import BaseModel
-from openskill.models import PlackettLuce
+from datetime import date
 
 def parse_score(score):
     """
