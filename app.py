@@ -58,7 +58,7 @@ config_file = os.getenv('CONFIG_FILE', 'config.yml')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 
-model = PlackettLuce(margin=1)
+model = PlackettLuce()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
