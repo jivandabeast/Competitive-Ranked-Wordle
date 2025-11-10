@@ -7,8 +7,6 @@ Authors: Jivan RamjiSingh
 TODO:
     P0:
     P1:
-        - Add functionality for generating performance charts
-        - Set margin parameter for PlackettLuce model to account for match skill
         - Add ELO and OpenSkill decay (pending rate determination)
     P2:
         - Lots of documentation
@@ -34,11 +32,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ---
 
 import os
-import json
 import yaml
 import logging
-import re
-import math
 import jwt
 from typing import Annotated
 from collections import defaultdict
@@ -63,7 +58,7 @@ config_file = os.getenv('CONFIG_FILE', 'config.yml')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 
-model = PlackettLuce()
+model = PlackettLuce(margin=1)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -80,6 +75,11 @@ class Player(BaseModel):
     player_name: str
     player_platform: str
     player_uuid: str
+
+class BackfillData(BaseModel):
+    start_puzzle: int
+    end_puzzle: int
+    calc_type: str
 
 class Token(BaseModel):
     access_token: str
@@ -457,7 +457,6 @@ def elo_decay():
 
 def is_puzzle_valid(puzzle: int):
     current_puzzle = get_wordle_puzzle(date.today())
-    print(current_puzzle)
     if current_puzzle <= puzzle:
         return True
     else:
@@ -611,6 +610,39 @@ async def add_score(score: Score, current_user: Annotated[User, Depends(get_curr
             'status': 409,
             'msg': f"{player_data['player_name']} already submitted Wordle #{data['puzzle']}"
         }
+
+@app.post('/backfill-scores')
+async def backfill_scores(backfill_data: BackfillData, current_user: Annotated[User, Depends(get_current_active_user)]):
+    openskill = False
+    elo = False
+
+    match backfill_data.calc_type:
+        case 'openskill':
+            openskill = True
+        case 'elo':
+            elo = True
+        case 'all':
+            openskill = True
+            elo = True
+        case _:
+            return {
+                'status': 400,
+                'msg': 'Field calc_type should be either openskill, elo, or all'
+            }
+    
+    for puzzle in range(backfill_data.start_puzzle, backfill_data.end_puzzle + 1):
+        if check_players(puzzle, puzzle, True):
+            if openskill:
+                calculate_openskill(puzzle)
+            if elo:
+                calculate_match_elo(puzzle)
+        else:
+            pass
+    
+    return {
+        'status': 200,
+        'msg': 'Backfill completed sucessfully.'
+    }
 
 @app.get('/score/{uuid}')
 async def get_score(uuid, current_user: Annotated[User, Depends(get_current_active_user)], puzzle: int = get_wordle_puzzle(date.today())):
